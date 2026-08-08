@@ -1,0 +1,193 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: f89fbb6ced8e04e1fbcaa39f87d76f36, type: 3}
+  m_Name: Level01_Workshop
+  m_EditorClassIdentifier: Assembly-CSharp::AlpacasOnFire.Level.LevelDefinition
+  levelName: "\u7B2C\u4E00\u95DC \u2014 \u5DE5\u574A"
+  sceneName: Level01_Workshop
+  durationSeconds: 180
+  star1: 300
+  star2: 600
+  star3: 900
+  orderPatterns: 01
+  orderColors: 0001
+  orderAccessories: 00
+  accessoryChance: 0
+  elements:
+  - id: b0f39a4d
+    type: 15
+    position: {x: 0, y: -0.1, z: 0}
+    rotationEuler: {x: 0, y: 0, z: 0}
+    scale: {x: 2.8, y: 1, z: 1.6}
+    variant: 
+    intParam: 0
+  - id: 7d367e20
+    type: 15
+    position: {x: 0, y: -0.1, z: 22}
+    rotationEuler: {x: 0, y: 0, z: 0}
+    scale: {x: 4, y: 1, z: 3}
+    variant: 
+    intParam: 0
+  - id: 2a69a5eb
+    type: 16
+    position: {x: 0, y: 0, z: -8}
+    rotationEuler: {x: 0, y: 0, z: 0}
+    scale: {x: 28, y: 1, z: 1}
+    variant: 
+    intParam: 0
+  - id: 94fcd4ea
+    type: 16
+    position: {x: -8, y: 0, z: 8}
+    rotationEuler: {x: 0, y: 0, z: 0}
+    scale: {x: 12, y: 1, z: 1}
+    variant: 
+    intParam: 0
+  - id: 47c81546
+    type: 16
+    position: {x: 8, y: 0, z: 8}
+    rotationEuler: {x: 0, y: 0, z: 0}
+    scale: {x: 12, y: 1, z: 1}
+    variant: 
+    intParam: 0
+  - id: a4279c9d
+    type: 16
+    position: {x: -14, y: 0, z: 0}
+    rotationEuler: {x: 0, y: 0, z: 0}
+    scale: {x: 1, y: 1, z: 16}
+    variant: 
+    intParam: 0
+  - id: 6a400bb3
+    type: 16
+    position: {x: 14, y: 0, z: 0}
+    rotationEuler: {x: 0, y: 0, z: 0}
+    scale: {x: 1, y: 1, z: 16}
+    variant: 
+    intParam: 0
+  - id: 93e6a1f6
+    type: 0
+    position: {x: -11.5, y: 0, z: 0}
+    rotationEuler: {x: 0, y: 90, z: 0}
+    scale: {x: 1, y: 1, z: 1}
+    variant: 
+    intParam: 0
+  - id: fa55faef
+    type: 1
+    position: {x: -9.5, y: 0.35, z: 2.5}
+    rotationEuler: {x: 0, y: 0, z: 0}
+    scale: {x: 1, y: 1, z: 1}
+    variant: 
+    intParam: 0
+  - id: f6f29780
+    type: 1
+    position: {x: -9.5, y: 0.35, z: -2.5}
+    rotationEuler: {x: 0, y: 0, z: 0}
+    scale: {x: 1, y: 1, z: 1}
+    variant: 
+    intParam: 0
+  - id: 5269b06f
+    type: 3
+    position: {x: -6, y: 0, z: 0}
+    rotationEuler: {x: 0, y: -90, z: 0}
+    scale: {x: 1, y: 1, z: 1}
+    variant: 
+    intParam: 0
+  - id: 875e0944
+    type: 4
+    position: {x: -1, y: 0, z: 4.5}
+    rotationEuler: {x: 0, y: 180, z: 0}
+    scale: {x: 1, y: 1, z: 1}
+    variant: 
+    intParam: 0
+  - id: f2d617fb
+    type: 5
+    position: {x: -1.5, y: 0, z: -3.5}
+    rotationEuler: {x: 0, y: 0, z: 0}
+    scale: {x: 1, y: 1, z: 1}
+    variant: 
+    intParam: 0
+  - id: 87a3a454
+    type: 5
+    position: {x: 1.5, y: 0, z: -3.5}
+    rotationEuler: {x: 0, y: 0, z: 0}
+    scale: {x: 1, y: 1, z: 1}
+    variant: 
+    intParam: 0
+  - id: 02ed2211
+    type: 2
+    position: {x: 0.6, y: 0.35, z: 1.2}
+    rotationEuler: {x: 0, y: 0, z: 0}
+    scale: {x: 1, y: 1, z: 1}
+    variant: 
+    intParam: 0
+  - id: 616c5e21
+    type: 2
+    position: {x: 1.6, y: 0.35, z: 1.2}
+    rotationEuler: {x: 0, y: 0, z: 0}
+    scale: {x: 1, y: 1, z: 1}
+    variant: 
+    intParam: 0
+  - id: 1b514e32
+    type: 12
+    position: {x: 4, y: 0, z: 4.5}
+    rotationEuler: {x: 0, y: 180, z: 0}
+    scale: {x: 1, y: 1, z: 1}
+    variant: Button
+    intParam: 0
+  - id: c9c2a832
+    type: 13
+    position: {x: 4, y: 0, z: -4.5}
+    rotationEuler: {x: 0, y: 0, z: 0}
+    scale: {x: 1, y: 1, z: 1}
+    variant: 
+    intParam: 0
+  - id: 45d3ba13
+    type: 6
+    position: {x: 8.5, y: 0, z: 3}
+    rotationEuler: {x: 0, y: 180, z: 0}
+    scale: {x: 1, y: 1, z: 1}
+    variant: 
+    intParam: 0
+  - id: 9b1bd557
+    type: 7
+    position: {x: 11.5, y: 0, z: 0}
+    rotationEuler: {x: 0, y: 90, z: 0}
+    scale: {x: 1, y: 1, z: 1}
+    variant: 
+    intParam: 0
+  - id: e9a53fb8
+    type: 17
+    position: {x: 11.8, y: 0, z: 4}
+    rotationEuler: {x: 0, y: 90, z: 0}
+    scale: {x: 1, y: 1, z: 1}
+    variant: 
+    intParam: 0
+  - id: ebef563a
+    type: 8
+    position: {x: 0, y: 0, z: 27}
+    rotationEuler: {x: 0, y: 0, z: 0}
+    scale: {x: 1, y: 1, z: 1}
+    variant: Red
+    intParam: 0
+  - id: dfbb7296
+    type: 8
+    position: {x: 5, y: 0, z: 30}
+    rotationEuler: {x: 0, y: 0, z: 0}
+    scale: {x: 1, y: 1, z: 1}
+    variant: Red
+    intParam: 0
+  - id: 6c30b084
+    type: 8
+    position: {x: -5, y: 0, z: 30}
+    rotationEuler: {x: 0, y: 0, z: 0}
+    scale: {x: 1, y: 1, z: 1}
+    variant: Red
+    intParam: 0
