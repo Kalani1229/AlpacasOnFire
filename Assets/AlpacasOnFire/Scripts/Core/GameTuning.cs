@@ -89,6 +89,41 @@ namespace AlpacasOnFire.Core
         public const float MachineHeight    = 1.9f;  // 略高於羊駝站立高度 1.8
         public const float MachineFootprint = 1.2f;
 
+        // ================= 擺攤系統（本批新增；以上既有數值一律沒有改動）=================
+
+        // ---------- 手提箱與襯布 ----------
+        public const float StallMatSize            = 8.0f;   // 襯布邊長（公尺），正方形
+        public const float StallMatDeployDistance  = 1.2f;   // 襯布近邊離玩家的距離
+        public const float StallMatHeightOffset    = 0.02f;  // 襯布貼地的抬升，避免 Z-fighting
+        public const float StallDeployProbeInset   = 0.35f;  // 四角檢測往內縮，避免剛好卡在邊界
+        public const float StallGroundProbeHeight  = 3.0f;   // 平坦度檢測射線的起點高度
+        public const float StallGroundProbeLength  = 6.0f;   // 平坦度檢測射線長度
+        public const float StallMaxGroundAngle     = 12.0f;  // 地面法線與垂直的最大容許角度（度）
+        public const float StallMaxGroundStep      = 0.45f;  // 四角高低差的最大容許值（公尺）
+
+        // ---------- 機台放置 ----------
+        public const float StallMinDeviceSpacing   = 1.8f;   // 兩台機台中心的最小距離
+        public const float StallDeviceEdgeMargin   = 0.7f;   // 機台中心離襯布邊緣的最小距離
+        public const float StallPlaceMaxDistance   = 12.0f;  // 準心投影的最遠距離
+        public const float StallRotationStep       = 90.0f;  // 滾輪一格轉多少度
+        public const float StallDeployDuration     = 0.0f;   // 擺放／收回耗時（0 = 瞬間，先不做長按）
+        public const float StallCollectRadius      = 0.6f;   // 收攤時清除襯布上物品的額外邊界
+
+        // ---------- 輸送帶 ----------
+        public const float ConveyorSpeed           = 1.6f;   // m/s
+        public const float ConveyorLength          = 3.0f;   // 帶面長度
+        public const float ConveyorWidth           = 0.9f;   // 帶面寬度
+        public const float ConveyorHeight          = 0.55f;  // 帶面高度
+        public const float ConveyorCaptureHeight   = 0.75f;  // 帶面上方多高之內的物品會被推動
+
+        // ---------- 交貨窗口 ----------
+        public const float DeliveryCounterHeight   = 1.3f;
+        public const float CustomerQueueDistance   = 1.6f;   // 排隊錨點離窗口的距離（下一批顧客用）
+
+        // ---------- 擺攤計時與經濟 ----------
+        public const float StallDurationSeconds    = 180f;   // 一場營業 3 分鐘（＝ LevelDurationSeconds）
+        public const int   StallStartingCapital    = 0;      // 資本額起始值
+
         public static int StarsFor(int money)
         {
             if (money >= Star3Threshold) return 3;

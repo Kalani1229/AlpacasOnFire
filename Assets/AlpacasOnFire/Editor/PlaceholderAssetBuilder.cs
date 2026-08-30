@@ -48,6 +48,8 @@ namespace AlpacasOnFire.EditorTools
             Step("Items", failures, () => BuildItems(items, itemLayer, failures));
             Step("Machines", failures, () => BuildMachines(elements, failures));
             Step("LevelPieces", failures, () => BuildLevelPieces(elements, items, failures));
+            // 擺攤系統的資產一定要排在最後：AttachDeployHandles 會改寫上面剛存好的機台 prefab
+            Step("Stall", failures, () => StallAssetBuilder.Build(items, elements, failures, itemLayer));
 
             var catalog = LoadOrCreateCatalog();
             catalog.playerPrefab = player != null ? player.GetComponent<NetworkObject>() : null;
@@ -213,6 +215,8 @@ namespace AlpacasOnFire.EditorTools
 
             var pc = root.AddComponent<PlayerController>();
             root.AddComponent<PlayerCarry>();
+            // 擺攤系統：每個玩家自己的放置狀態。PlayerController 一行都沒動，只是多掛一個元件。
+            root.AddComponent<Stall.PlayerStallAgent>();
 
             SetRef(pc, "_handAnchor", hand.transform);
             SetRef(pc, "_headAnchor", head.transform);

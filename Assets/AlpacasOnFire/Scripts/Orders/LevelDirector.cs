@@ -24,6 +24,14 @@ namespace AlpacasOnFire.Orders
         [SerializeField] private int _star2 = GameTuning.Star2Threshold;
         [SerializeField] private int _star3 = GameTuning.Star3Threshold;
 
+        [Header("擺攤模式")]
+        [Tooltip("開啟後不會自動開始計時，改由 StallManager 在「開張」時呼叫 BeginStallRound()；" +
+                 "星級結算也會關閉（程式碼保留，只是不觸發）。")]
+        [SerializeField] private bool _stallMode = false;
+
+        /// <summary>擺攤模式：計時由擺攤階段驅動，星級結算關閉。</summary>
+        public bool StallMode => _stallMode;
+
         [Networked] public int Money { get; set; }
         [Networked] public NetworkBool Running { get; set; }
         [Networked] public NetworkBool Finished { get; set; }
@@ -43,9 +51,25 @@ namespace AlpacasOnFire.Orders
             {
                 Money = 0;
                 Finished = false;
-                Running = true;
-                LevelTimer = TickTimer.CreateFromSeconds(Runner, _durationSeconds);
+
+                // 擺攤模式：探索階段不限時，等房主按「開張」才開始計時
+                Running = !_stallMode;
+                LevelTimer = _stallMode ? default : TickTimer.CreateFromSeconds(Runner, _durationSeconds);
             }
+        }
+
+        /// <summary>
+        /// 擺攤模式：開始一場營業。只在 StateAuthority 呼叫（由 StallManager.OpenForBusiness 觸發）。
+        /// 每場的營業額都從 0 重新算，累積由 StallManager.Capital 負責。
+        /// </summary>
+        public void BeginStallRound(float seconds)
+        {
+            if (!HasStateAuthority) return;
+            Money = 0;
+            Stars = 0;
+            Finished = false;
+            Running = true;
+            LevelTimer = TickTimer.CreateFromSeconds(Runner, seconds);
         }
 
         public override void Despawned(NetworkRunner runner, bool hasState)
@@ -59,6 +83,12 @@ namespace AlpacasOnFire.Orders
             if (!LevelTimer.Expired(Runner)) return;
 
             Running = false;
+
+            // 擺攤模式：不做星級結算，也不設 Finished
+            //（Finished 會讓 OrderBoard 清空訂單、讓 ResultsScreen 跳出星級畫面）。
+            // 這一場的收尾交給 StallManager，它會看到 Running 變 false 就進入 Settling。
+            if (_stallMode) return;
+
             Finished = true;
             Stars = StarsFor(Money);
             RPC_LevelFinished(Money, Stars);

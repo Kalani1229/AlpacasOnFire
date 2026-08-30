@@ -97,6 +97,11 @@ namespace AlpacasOnFire.UI
 
         public void Show(int money, int stars)
         {
+            // 擺攤模式改用 StallResultsPanel 顯示「本場營業額 / 成交 / 錯過」，
+            // 星級結算的程式碼整段保留，只是不觸發（規格書：先關閉但不要刪除）。
+            var director = LevelDirector.Instance;
+            if (director != null && director.StallMode) return;
+
             _shown = true;
             _root.SetActive(true);
             _moneyLabel.text = $"總金額 ${money}";

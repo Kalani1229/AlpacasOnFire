@@ -164,6 +164,27 @@ namespace AlpacasOnFire.Orders
                 if (Orders[i].Active) Orders.Set(i, default);
         }
 
+        /// <summary>
+        /// 外部（擺攤系統結算時）清空訂單板。只在 StateAuthority 呼叫。
+        /// </summary>
+        public void ClearAllOrders()
+        {
+            if (!HasStateAuthority) return;
+            ClearAll();
+        }
+
+        /// <summary>
+        /// 重設出單排程，讓下一張訂單從「第一張的延遲」重新算起。
+        /// 擺攤模式在按下開張時呼叫，否則探索階段拖太久會讓訂單一開張就全部湧出來。
+        /// 只在 StateAuthority 呼叫。
+        /// </summary>
+        public void ResetSpawnSchedule()
+        {
+            if (!HasStateAuthority) return;
+            ClearAll();
+            SpawnTimer = TickTimer.CreateFromSeconds(Runner, GameTuning.FirstOrderDelaySeconds);
+        }
+
         [Rpc(RpcSources.StateAuthority, RpcTargets.All)]
         private void RPC_DeliveryResult(NetworkBool success, string desc)
         {
