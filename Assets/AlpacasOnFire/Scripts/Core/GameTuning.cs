@@ -23,7 +23,7 @@ namespace AlpacasOnFire.Core
         public const float CameraDistance      = 4.5f;   // 理想距離
         public const float CameraHeight        = 1.5f;   // 以角色腳底為基準的樞紐高度
         public const float CameraSideOffset    = 0.35f;  // 稍微偏右，避免角色擋住準心
-        public const float CameraPitchMin      = -35f;
+        public const float CameraPitchMin      = -70f;  // 負值＝往上看。畫布很高，要抬得夠
         public const float CameraPitchMax      = 70f;
         public const float CameraDefaultPitch  = 18f;
         public const float CameraFollowSmooth  = 0.08f;  // SmoothDamp 時間
@@ -108,7 +108,7 @@ namespace AlpacasOnFire.Core
 
         // ---------- 襯布網格（PlateUp! 式）----------
         public const float StallCellSize           = 1.5f;   // 網格單格邊長（公尺）
-        public const int   StallGridCells          = 6;      // 襯布是 6 x 6 格
+        public const int   StallGridCells          = 8;      // 襯布是 8 x 8 格（12 x 12 公尺）
         /// <summary>襯布邊長 = 6 x 1.5 = 9 公尺。改格數或格子大小，這裡會自動跟著變。</summary>
         public const float StallMatSize            = StallGridCells * StallCellSize;
 
@@ -134,6 +134,8 @@ namespace AlpacasOnFire.Core
         public const float StallPlaceMaxDistance   = 12.0f;  // 準心投影的最遠距離
         public const float StallDeployDuration     = 0.0f;   // 擺放／收回耗時（0 = 瞬間，先不做長按）
         public const float StallCollectRadius      = 1.2f;   // 收攤時清除襯布上物品的額外邊界
+        /// <summary>擺攤期間玩家能走出襯布邊緣多遠。襯布 + 這個邊界＝「擺攤區域」。</summary>
+        public const float StallZoneMargin         = 2.5f;
 
         // ---------- 開箱彈出動畫（純本機視覺，不同步）----------
         public const float StallPopDuration        = 0.35f;  // 單台裝備彈出的時間

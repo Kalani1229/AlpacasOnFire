@@ -118,16 +118,16 @@ namespace AlpacasOnFire.Stall
         // ---------------- 預設佈局 ----------------
 
         /// <summary>
-        /// 第一次開箱用的預設佈局（6 x 6 格，(0,0) 在左後角，z 往前 = 顧客那一側）。
+        /// 第一次開箱用的預設佈局（8 x 8 格，(0,0) 在左後角，z 往前 = 顧客那一側）。
         ///
         /// 這個排法是照白色 T-shirt 的動線設計的，開箱就能直接跑通：
         ///
-        ///     z=5                    [交貨窗口]
+        ///     z=6                    [交貨窗口]
+        ///     z=5                    [輸送帶↑]
         ///     z=4                    [輸送帶↑]
-        ///     z=3                    [輸送帶↑]
-        ///     z=2   [果汁機]         [縫紉機]      [人偶]
-        ///     z=1                    [剃毛器架]
-        ///           x=1              x=2           x=3
+        ///     z=3   [果汁機]         [縫紉機]                    [人偶]
+        ///     z=2                    [剃毛器架]
+        ///           x=2              x=3                        x=5
         ///
         /// 剃毛 -> 縫紉機 -> 縫紉機自動把成品送上輸送帶 -> 兩條輸送帶接力送到交貨窗口。
         /// 染色支線（果汁機榨出顏料 -> 拿去刷人偶身上的衣服）掛在旁邊，不擋主線，
@@ -135,13 +135,13 @@ namespace AlpacasOnFire.Stall
         /// </summary>
         public static readonly StallSlotRecord[] DefaultLayout =
         {
-            StallSlotRecord.Create(LevelElementType.DeliveryCounter,  2, 5, (int)StallFacing.North),
-            StallSlotRecord.Create(LevelElementType.Conveyor,         2, 4, (int)StallFacing.North),
-            StallSlotRecord.Create(LevelElementType.Conveyor,         2, 3, (int)StallFacing.North),
-            StallSlotRecord.Create(LevelElementType.SewingMachine,    2, 2, (int)StallFacing.North),
-            StallSlotRecord.Create(LevelElementType.ToolRackShears,   2, 1, (int)StallFacing.North),
-            StallSlotRecord.Create(LevelElementType.Juicer,           1, 2, (int)StallFacing.East),
-            StallSlotRecord.Create(LevelElementType.Mannequin,        3, 2, (int)StallFacing.North),
+            StallSlotRecord.Create(LevelElementType.DeliveryCounter,  3, 6, (int)StallFacing.North),
+            StallSlotRecord.Create(LevelElementType.Conveyor,         3, 5, (int)StallFacing.North),
+            StallSlotRecord.Create(LevelElementType.Conveyor,         3, 4, (int)StallFacing.North),
+            StallSlotRecord.Create(LevelElementType.SewingMachine,    3, 3, (int)StallFacing.North),
+            StallSlotRecord.Create(LevelElementType.ToolRackShears,   3, 2, (int)StallFacing.North),
+            StallSlotRecord.Create(LevelElementType.Juicer,           2, 3, (int)StallFacing.East),
+            StallSlotRecord.Create(LevelElementType.Mannequin,        5, 3, (int)StallFacing.North),
         };
 
         /// <summary>

@@ -2,6 +2,7 @@ using AlpacasOnFire.Core;
 using AlpacasOnFire.Interaction;
 using AlpacasOnFire.Items;
 using AlpacasOnFire.Networking;
+using AlpacasOnFire.Stall;
 using Fusion;
 using UnityEngine;
 
@@ -220,9 +221,39 @@ namespace AlpacasOnFire.Player
 
             // 移動方向永遠相對角色目前朝向
             var wish = transform.rotation * new Vector3(moveInput.x, 0f, moveInput.y);
+            wish = ClampToStallZone(wish);
             _ncc.Move(wish);
 
             SuppressStepUpLaunch();
+        }
+
+        /// <summary>
+        /// 擺攤期間把玩家關在「擺攤區域」（襯布 + 邊界）裡面。
+        ///
+        /// 做法是**把往外的移動分量砍掉**，而不是事後把位置拉回來 ——
+        /// 拉位置會跟 NetworkCharacterController 的內部快取打架、造成抖動，
+        /// 砍分量則會自然變成沿著邊界滑動，手感也比較好。
+        ///
+        /// 判定在襯布的本地座標做，所以襯布轉過角度也成立。
+        /// </summary>
+        private Vector3 ClampToStallZone(Vector3 wish)
+        {
+            var stall = StallManager.Instance;
+            if (stall == null || stall.Object == null || !stall.MatDeployed) return wish;
+
+            var rot = Quaternion.Euler(0f, stall.MatYaw, 0f);
+            var invRot = Quaternion.Inverse(rot);
+
+            var local = invRot * (transform.position - stall.MatCenter);
+            var localWish = invRot * wish;
+            float half = stall.MatSize * 0.5f + GameTuning.StallZoneMargin;
+
+            if (local.x >  half && localWish.x > 0f) localWish.x = 0f;
+            if (local.x < -half && localWish.x < 0f) localWish.x = 0f;
+            if (local.z >  half && localWish.z > 0f) localWish.z = 0f;
+            if (local.z < -half && localWish.z < 0f) localWish.z = 0f;
+
+            return rot * localWish;
         }
 
         /// <summary>

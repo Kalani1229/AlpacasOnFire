@@ -29,11 +29,27 @@ namespace AlpacasOnFire.Player
             _player = GetComponent<PlayerController>();
         }
 
+        public override void FixedUpdateNetwork()
+        {
+            if (!HasStateAuthority) return;
+
+            // 自我修復：手上的東西被別人 Despawn 掉時，HeldId 會變成一個指不到東西的 id。
+            // 那會造成「UI 顯示手上有東西、畫面上卻什麼都沒有，而且再也放不掉」。
+            // 這裡每個 tick 檢查一次，發現就清掉。
+            if (!HeldId.IsValid) return;
+            if (Runner != null && Runner.TryFindObject(HeldId, out var obj) && obj != null) return;
+
+            Debug.LogWarning("[攜帶] 手上的物件已經不存在了，清掉持有狀態。");
+            HeldId = default;
+        }
+
         // ---------------- 拾取 / 放下 ----------------
 
         public bool TryPickup(CarriableItem item)
         {
             if (!HasStateAuthority || item == null) return false;
+            // 已經被 Despawn 的物件不能撿 —— 撿了會留下一個指不到東西的 HeldId
+            if (item.Object == null || !item.Object.IsValid) return false;
             if (HasItem || item.IsHeld) return false;
 
             item.AttachTo(_player);

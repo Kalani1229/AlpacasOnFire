@@ -380,8 +380,27 @@ namespace AlpacasOnFire.Stall
             suitcase ??= ActiveSuitcase ?? FindSuitcaseNearMat();
 
             int saved = SaveLayoutTo(suitcase);
+
+            // **先把箱子交回手上，再開始清場。**
+            // 清場的掃描是「襯布範圍內、沒被拿著的東西」，箱子一旦在手上就絕對不會被掃到；
+            // 反過來（先清場再交還）只要有任何一條排除條件失效，箱子就會被 Despawn，
+            // 然後 HeldId 指向一個不存在的物件 —— 畫面上沒東西、UI 卻說手上有東西。
+            bool returned = false;
+            if (suitcase != null && requester != null)
+            {
+                returned = suitcase.ReturnToHands(requester);
+                if (!returned)
+                {
+                    // 手不空：放在收攤的人腳邊，不要留在襯布邊緣 ——
+                    // 襯布收掉之後那個位置沒有任何視覺參考，等於把箱子丟掉
+                    suitcase.DetachToGround(requester.transform.position
+                                            + requester.transform.forward * 0.8f);
+                    RPC_Notice("手上有東西，手提箱放在你腳邊");
+                }
+            }
+
             int devices = DespawnDeployedDevices();
-            int loose = DespawnLooseItemsOnMat();
+            int loose = DespawnLooseItemsOnMat(suitcase);
 
             DespawnBell();
 
@@ -390,11 +409,8 @@ namespace AlpacasOnFire.Stall
             SetState(StallState.Exploring);
             GameAudio.PlayAt(SfxId.StallClose, MatCenter);
 
-            // 箱子回到收攤那個人手上；手不空的話就留在原地，並讓大家知道為什麼
-            if (suitcase != null && requester != null && !suitcase.ReturnToHands(requester))
-                RPC_Notice("手上有東西，手提箱先留在原地");
-
-            Debug.Log($"[擺攤] 收攤完成：記住 {saved} 台的排法、收回裝備 {devices} 台、襯布上的物品 {loose} 個。");
+            Debug.Log($"[擺攤] 收攤完成：記住 {saved} 台的排法、收回裝備 {devices} 台、" +
+                      $"襯布上的物品 {loose} 個、手提箱{(returned ? "回到手上" : "留在地上")}。");
         }
 
         /// <summary>把場上所有裝備的格子與朝向寫回手提箱。</summary>
@@ -460,7 +476,7 @@ namespace AlpacasOnFire.Stall
             return n;
         }
 
-        private int DespawnLooseItemsOnMat()
+        private int DespawnLooseItemsOnMat(SuitcaseItem keep = null)
         {
             int n = 0;
             float limit = GameTuning.StallMatSize * 0.5f + GameTuning.StallCollectRadius;
@@ -469,8 +485,9 @@ namespace AlpacasOnFire.Stall
             {
                 var item = CarriableItem.All[i];
                 if (item == null || item.Object == null) continue;
-                if (item.IsHeld) continue;                    // 拿在手上的不動
-                if (item.Kind == ItemKind.Suitcase) continue; // 手提箱本身留著
+                if (item.IsHeld) continue;                     // 拿在手上的不動
+                if (item is SuitcaseItem) continue;            // 手提箱一律留著（用型別判斷，不靠 Kind 設對）
+                if (keep != null && item == keep) continue;
 
                 var local = StallGeometry.WorldToMat(item.transform.position, MatCenter, MatYaw);
                 if (Mathf.Abs(local.x) > limit || Mathf.Abs(local.z) > limit) continue;
