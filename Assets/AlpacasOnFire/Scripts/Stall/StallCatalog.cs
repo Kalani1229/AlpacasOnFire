@@ -23,10 +23,10 @@ namespace AlpacasOnFire.Stall
             LevelElementType.ToolRackShears,
             LevelElementType.SewingMachine,
             LevelElementType.Juicer,
-            LevelElementType.ToolRackSprayGun,
             LevelElementType.Mannequin,
             LevelElementType.DeliveryCounter,
             LevelElementType.Conveyor,
+            LevelElementType.Conveyor,   // 兩條：同方向擺在一起會自動串成一條長線
         };
 
         /// <summary>佈局陣列的容量。留了餘裕，之後加裝備不用改同步結構。</summary>
@@ -43,20 +43,18 @@ namespace AlpacasOnFire.Stall
         };
 
         public static bool IsToolRack(LevelElementType type)
-            => type == LevelElementType.ToolRackShears || type == LevelElementType.ToolRackSprayGun;
+            => type == LevelElementType.ToolRackShears;
 
         /// <summary>工具架上放的是哪一種工具。</summary>
         public static ItemKind RackToolKind(LevelElementType type) => type switch
         {
             LevelElementType.ToolRackShears   => ItemKind.Shears,
-            LevelElementType.ToolRackSprayGun => ItemKind.SprayGun,
             _                                 => ItemKind.None,
         };
 
         public static string DisplayName(LevelElementType type) => type switch
         {
             LevelElementType.ToolRackShears   => "剃毛器架",
-            LevelElementType.ToolRackSprayGun => "噴槍架",
             LevelElementType.SewingMachine    => "縫紉機",
             LevelElementType.Juicer           => "果汁機",
             LevelElementType.Mannequin        => "人偶",
@@ -94,7 +92,6 @@ namespace AlpacasOnFire.Stall
         public static Vector3 GhostSize(LevelElementType type) => type switch
         {
             LevelElementType.ToolRackShears   => new Vector3(0.7f, 1.0f, 0.55f),
-            LevelElementType.ToolRackSprayGun => new Vector3(0.7f, 1.0f, 0.55f),
             LevelElementType.Conveyor => new Vector3(GameTuning.ConveyorWidth,
                                                     GameTuning.ConveyorHeight,
                                                     GameTuning.ConveyorLength),
@@ -110,7 +107,6 @@ namespace AlpacasOnFire.Stall
         public static Color GhostColor(LevelElementType type) => type switch
         {
             LevelElementType.ToolRackShears   => PlaceholderPalette.ShearsBlade,
-            LevelElementType.ToolRackSprayGun => PlaceholderPalette.SprayNozzle,
             LevelElementType.SewingMachine    => PlaceholderPalette.SewingMachine,
             LevelElementType.Juicer           => PlaceholderPalette.Juicer,
             LevelElementType.Mannequin        => PlaceholderPalette.Mannequin,
@@ -126,24 +122,25 @@ namespace AlpacasOnFire.Stall
         ///
         /// 這個排法是照白色 T-shirt 的動線設計的，開箱就能直接跑通：
         ///
-        ///     z=5              [交貨窗口]              ← 顧客站襯布外
-        ///     z=4              [輸送帶↑]
-        ///     z=3   [果汁機]   [縫紉機]
-        ///     z=2   [噴槍架]   [人偶]
-        ///     z=1   [剃毛器架]
-        ///           x=1        x=2       x=3   x=4
+        ///     z=5                    [交貨窗口]
+        ///     z=4                    [輸送帶↑]
+        ///     z=3                    [輸送帶↑]
+        ///     z=2   [果汁機]         [縫紉機]      [人偶]
+        ///     z=1                    [剃毛器架]
+        ///           x=1              x=2           x=3
         ///
-        /// 剃毛 -> 縫紉機 -> 放上輸送帶 -> 送到交貨窗口，是一條直線；
-        /// 染色支線（果汁機 -> 噴槍架 -> 人偶）掛在旁邊，不擋主線。
+        /// 剃毛 -> 縫紉機 -> 縫紉機自動把成品送上輸送帶 -> 兩條輸送帶接力送到交貨窗口。
+        /// 染色支線（果汁機榨出顏料 -> 拿去刷人偶身上的衣服）掛在旁邊，不擋主線，
+        /// 而且刻意不跟輸送帶正交相鄰，免得染劑罐被自動送到交貨窗口去。
         /// </summary>
         public static readonly StallSlotRecord[] DefaultLayout =
         {
             StallSlotRecord.Create(LevelElementType.DeliveryCounter,  2, 5, (int)StallFacing.North),
             StallSlotRecord.Create(LevelElementType.Conveyor,         2, 4, (int)StallFacing.North),
-            StallSlotRecord.Create(LevelElementType.SewingMachine,    2, 3, (int)StallFacing.North),
+            StallSlotRecord.Create(LevelElementType.Conveyor,         2, 3, (int)StallFacing.North),
+            StallSlotRecord.Create(LevelElementType.SewingMachine,    2, 2, (int)StallFacing.North),
             StallSlotRecord.Create(LevelElementType.ToolRackShears,   2, 1, (int)StallFacing.North),
-            StallSlotRecord.Create(LevelElementType.Juicer,           4, 3, (int)StallFacing.West),
-            StallSlotRecord.Create(LevelElementType.ToolRackSprayGun, 4, 2, (int)StallFacing.West),
+            StallSlotRecord.Create(LevelElementType.Juicer,           1, 2, (int)StallFacing.East),
             StallSlotRecord.Create(LevelElementType.Mannequin,        3, 2, (int)StallFacing.North),
         };
 

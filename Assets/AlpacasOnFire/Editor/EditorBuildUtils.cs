@@ -69,6 +69,36 @@ namespace AlpacasOnFire.EditorTools
             return mat;
         }
 
+        /// <summary>
+        /// URP Lit 的半透明材質。URP 的透明是靠一組屬性 + keyword + renderQueue 決定的，
+        /// 不是改個 alpha 就好，所以集中在這裡設定一次。
+        /// </summary>
+        public static Material TransparentMat(string name, Color color, float alpha)
+        {
+            var mat = Mat(name, color);
+            var c = color; c.a = alpha;
+
+            if (mat.HasProperty("_BaseColor")) mat.SetColor("_BaseColor", c);
+            if (mat.HasProperty("_Color")) mat.SetColor("_Color", c);
+
+            if (mat.HasProperty("_Surface")) mat.SetFloat("_Surface", 1f);   // 1 = Transparent
+            if (mat.HasProperty("_Blend")) mat.SetFloat("_Blend", 0f);       // Alpha blend
+            if (mat.HasProperty("_AlphaClip")) mat.SetFloat("_AlphaClip", 0f);
+            if (mat.HasProperty("_SrcBlend"))
+                mat.SetFloat("_SrcBlend", (float)UnityEngine.Rendering.BlendMode.SrcAlpha);
+            if (mat.HasProperty("_DstBlend"))
+                mat.SetFloat("_DstBlend", (float)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
+            if (mat.HasProperty("_ZWrite")) mat.SetFloat("_ZWrite", 0f);
+
+            mat.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
+            mat.DisableKeyword("_ALPHATEST_ON");
+            mat.DisableKeyword("_ALPHAPREMULTIPLY_ON");
+            mat.renderQueue = (int)UnityEngine.Rendering.RenderQueue.Transparent;
+
+            EditorUtility.SetDirty(mat);
+            return mat;
+        }
+
         public static GameObject Empty(string name, Transform parent, Vector3 localPos)
         {
             var go = new GameObject(name);

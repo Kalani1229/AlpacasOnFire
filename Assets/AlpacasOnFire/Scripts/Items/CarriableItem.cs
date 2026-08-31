@@ -199,7 +199,7 @@ namespace AlpacasOnFire.Items
                 ItemKind.Box           => PlaceholderPalette.Box,
                 _                      => Color.white,
             };
-            if (_kind == ItemKind.Shears || _kind == ItemKind.SprayGun) return; // 工具維持 prefab 配色
+            if (_kind == ItemKind.Shears) return; // 工具維持 prefab 配色
 
             _mpb ??= new MaterialPropertyBlock();
             foreach (var r in _tintTargets)
@@ -261,13 +261,12 @@ namespace AlpacasOnFire.Items
         {
             ItemKind.Wool        => "羊毛",
             ItemKind.DyeMaterial => PlaceholderPalette.DyeName(Spec.Color) + "染料",
-            ItemKind.DyeCanister => PlaceholderPalette.DyeName(Spec.Color) + "染劑",
+            ItemKind.DyeCanister => PlaceholderPalette.DyeName(Spec.Color) + "顏料",
             ItemKind.Accessory   => PlaceholderPalette.AccessoryName(Spec.Accessory),
             ItemKind.HairTonic   => "生髮水",
             ItemKind.Garment     => Spec.Describe(),
             ItemKind.Box         => "箱子",
             ItemKind.Shears      => "剃毛器",
-            ItemKind.SprayGun    => "噴槍",
             _                    => "物品",
         };
     }

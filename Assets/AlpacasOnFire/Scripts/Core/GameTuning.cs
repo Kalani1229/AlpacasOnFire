@@ -59,12 +59,27 @@ namespace AlpacasOnFire.Core
         // ---------- 果汁機 ----------
         public const float JuicerProcessSeconds= 4.0f;   // 1 份原料 -> 1 罐染劑
 
-        // ---------- 噴槍 ----------
-        public const float SprayCapacity       = 100f;   // 一罐染劑裝滿噴槍
-        public const float SprayDrainPerSecond = 25f;    // 滿容量可噴 4 秒
-        public const float SprayPaintRequired  = 40f;    // 一件衣服要噴滿 40 單位（約 1.6 秒）
-        public const float SprayRange          = 3.0f;
-        public const float SprayConeDot        = 0.85f;  // 噴灑判定的夾角
+        // ---------- 塗抹（染劑罐）----------
+        public const float PaintCapacity        = 100f;  // 一罐顏料的總量
+        public const float PaintDrainPerSecond  = 22f;   // 按住 E 每秒消耗，滿罐約可刷 4.5 秒
+        public const float PaintRange           = 2.6f;  // 刷得到的距離
+        public const float PaintBrushRadiusUv   = 0.05f; // 筆刷半徑（UV 空間，0~1）
+        public const float PaintCoverageRequired= 0.30f; // 塗到三成就算是這個顏色的衣服
+        /// <summary>達標時邊框發光幾秒，告訴玩家「這件完成了」。</summary>
+        public const float PaintCompleteGlowSeconds = 3f;
+
+        // 衣服外形：從上往下看是「兩邊寬、兩邊很窄」的長方體，像一片掛起來的布。
+        // 正反面共用同一張塗抹圖（圖案會透過去），所以用平面投影而不是圓柱投影。
+        // 掛在人偶上的那件是「畫布」。做成正方形（取較寬的那邊）——
+        // 這樣 32x32 的遮罩不會被拉長，筆刷在畫面上才是圓的。
+        public static readonly Vector3 GarmentOnHostSize = new Vector3(4.0f, 4.0f, 0.22f);
+        /// <summary>畫布中心離地多高（正方形之後不能再用人偶身高推算，會插到地板下）。</summary>
+        public const float GarmentHostCenterY = 2.15f;
+        public static readonly Vector3 GarmentItemSize   = new Vector3(0.58f, 0.42f, 0.08f);
+        /// <summary>掛在人偶身上時往操作面推出來多少，避免整片埋進人偶本體裡。</summary>
+        public const float GarmentFrontOffset = 0.72f;
+        /// <summary>自己的身體擋住畫布時淡到多透明。</summary>
+        public const float LocalPlayerFadeAlpha = 0.28f;
 
         // ---------- 素材點 ----------
         public const float DyeSourceRespawnSeconds = 5f;
@@ -134,8 +149,9 @@ namespace AlpacasOnFire.Core
         public const float ConveyorWidth           = 0.85f;  // 帶面寬度
         public const float ConveyorHeight          = 0.55f;  // 帶面高度
         public const float ConveyorCaptureHeight   = 0.75f;  // 帶面上方多高之內的物品會被推動
-        // 機台完成品自動出貨到輸送帶：出料口周圍多遠之內的輸送帶算「接上了」
-        public const float MachineConveyorLinkRadius = 1.8f;
+        // 相鄰格是 1.5 公尺、斜角是 2.12 公尺，門檻取 1.9 剛好只認正交相鄰
+        public const float ConveyorLinkRadius        = 1.9f;   // 兩條輸送帶串在一起的判定
+        public const float MachineConveyorLinkRadius = 1.9f;   // 機台旁有輸送帶就自動出貨
 
         // ---------- 交貨窗口 ----------
         public const float DeliveryCounterHeight   = 1.3f;

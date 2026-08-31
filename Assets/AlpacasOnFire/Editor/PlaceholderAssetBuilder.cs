@@ -5,6 +5,7 @@ using AlpacasOnFire.Machines;
 using AlpacasOnFire.Level;
 using AlpacasOnFire.Networking;
 using AlpacasOnFire.Player;
+using AlpacasOnFire.Stall;
 using Fusion;
 using UnityEditor;
 using UnityEngine;
@@ -113,7 +114,7 @@ namespace AlpacasOnFire.EditorTools
             }
         }
 
-        [MenuItem("羊駝很忙/4. 檢查設置（診斷用）", priority = 3)]
+        [MenuItem("羊駝很忙/4. 檢查設置（診斷用）", priority = 4)]
         public static void ValidateSetup()
         {
             var catalog = AssetDatabase.LoadAssetAtPath<GameCatalog>($"{ResourcesDir}/GameCatalog.asset");
@@ -226,6 +227,11 @@ namespace AlpacasOnFire.EditorTools
             SetRef(pc, "_garmentRenderer", garment.GetComponent<Renderer>());
             SetRef(pc, "_fleeceIndicator", fleece.GetComponent<Renderer>());
 
+            // 擋住畫布時會整隻換成這個半透明材質
+            SetRef(pc, "_fadeMaterial",
+                   TransparentMat("M_AlpacaFade", PlaceholderPalette.PlayerColor(0),
+                                  GameTuning.LocalPlayerFadeAlpha));
+
             SetLayerRecursive(root, layer);
             return SavePrefab(root, "Alpaca_Player");
         }
@@ -255,13 +261,22 @@ namespace AlpacasOnFire.EditorTools
                 return (typeof(CarriableItem), new Renderer[] { s.GetComponent<Renderer>() });
             }));
 
+            // 染劑罐 = 顏料罐 = 畫筆。果汁機榨出來就直接拿去刷衣服，沒有中間工具。
             AddItem(outItems, failures, "Item_DyeCanister", () => Item(ItemKind.DyeCanister, "Item_DyeCanister", layer, root =>
             {
                 var mat = Mat("M_Dye", PlaceholderPalette.Dye(DyeColorType.Red));
                 var s = Prim(PrimitiveType.Cylinder, "Canister", root.transform, Vector3.zero,
                              new Vector3(0.26f, 0.2f, 0.26f), mat);
-                return (typeof(CarriableItem), new Renderer[] { s.GetComponent<Renderer>() });
-            }));
+
+                // 罐子裡的顏料量：用高度表示剩多少
+                var level = Prim(PrimitiveType.Cylinder, "PaintLevel", root.transform,
+                                 new Vector3(0f, 0.02f, 0f), new Vector3(0.2f, 0.16f, 0.2f), mat,
+                                 keepCollider: false);
+
+                var canister = root.AddComponent<DyeCanisterTool>();
+                SetRef(canister, "_levelIndicator", level.GetComponent<Renderer>());
+                return (typeof(DyeCanisterTool), new Renderer[] { s.GetComponent<Renderer>() });
+            }, componentAlreadyAdded: true));
 
             AddItem(outItems, failures, "Item_Accessory", () => Item(ItemKind.Accessory, "Item_Accessory", layer, root =>
             {
@@ -274,7 +289,7 @@ namespace AlpacasOnFire.EditorTools
             {
                 var mat = Mat("M_Garment", PlaceholderPalette.Wool);
                 var s = Prim(PrimitiveType.Cube, "Cloth", root.transform, Vector3.zero,
-                             new Vector3(0.5f, 0.14f, 0.42f), mat);
+                             GameTuning.GarmentItemSize, mat);
                 return (typeof(GarmentItem), new Renderer[] { s.GetComponent<Renderer>() });
             }));
 
@@ -305,23 +320,6 @@ namespace AlpacasOnFire.EditorTools
                 return (typeof(ShearsTool), new Renderer[] { b.GetComponent<Renderer>() });
             }));
 
-            AddItem(outItems, failures, "Item_SprayGun", () => Item(ItemKind.SprayGun, "Item_SprayGun", layer, root =>
-            {
-                var body = Mat("M_ToolBody", PlaceholderPalette.ToolBody);
-                var nozzleMat = Mat("M_SprayNozzle", PlaceholderPalette.SprayNozzle);
-                var tankMat = Mat("M_Dye", PlaceholderPalette.Dye(DyeColorType.Red));
-
-                var b = Prim(PrimitiveType.Cube, "Body", root.transform, Vector3.zero,
-                             new Vector3(0.14f, 0.14f, 0.44f), body);
-                Prim(PrimitiveType.Cube, "Nozzle", root.transform, new Vector3(0f, 0f, 0.3f),
-                     new Vector3(0.08f, 0.08f, 0.2f), nozzleMat, keepCollider: false);
-                var tank = Prim(PrimitiveType.Cube, "Tank", root.transform, new Vector3(0f, 0.14f, -0.08f),
-                                new Vector3(0.12f, 0.14f, 0.22f), tankMat, keepCollider: false);
-
-                var gun = root.AddComponent<SprayGunTool>();
-                SetRef(gun, "_tankIndicator", tank.GetComponent<Renderer>());
-                return (typeof(SprayGunTool), new Renderer[] { b.GetComponent<Renderer>() });
-            }, componentAlreadyAdded: true));
         }
 
         private static GameCatalog.ItemEntry Item(ItemKind kind, string prefabName, int layer,
@@ -473,9 +471,24 @@ namespace AlpacasOnFire.EditorTools
                  new Vector3(GameTuning.MachineFootprint, h, GameTuning.MachineFootprint), mat);
 
             var garmentAnchor = Empty("GarmentAnchor", root.transform, new Vector3(0f, h * 0.6f, 0f));
+            // 畫布：一片正方形的薄板，像掛起來的一塊布。
+            // 往操作面推出來，不然整片會埋在人偶本體裡看不到。
+            // 要留著碰撞體 —— 玩家是用射線刷上去的，沒有碰撞體就刷不到。
+            var garmentPos = new Vector3(0f, GameTuning.GarmentHostCenterY, -GameTuning.GarmentFrontOffset);
             var garment = Prim(PrimitiveType.Cube, "GarmentVisual", root.transform,
-                new Vector3(0f, h * 0.6f, 0f), new Vector3(1.32f, 0.7f, 1.32f), garmentMat, keepCollider: false);
+                garmentPos, GameTuning.GarmentOnHostSize, garmentMat, keepCollider: true);
             garment.GetComponent<Renderer>().enabled = false;
+
+            // 完成提示的外框：比畫布大一圈、擺在畫布正後方，只露出邊。
+            // 塗到門檻時發光三秒，這是玩家唯一會知道「這件算完成了」的訊號。
+            var frameMat = TransparentMat("M_PaintDoneFrame", new Color(1f, 0.95f, 0.6f), 1f);
+            var frameSize = new Vector3(GameTuning.GarmentOnHostSize.x * 1.10f,
+                                        GameTuning.GarmentOnHostSize.y * 1.10f,
+                                        0.06f);
+            var frame = Prim(PrimitiveType.Cube, "CompletionFrame", root.transform,
+                garmentPos + new Vector3(0f, 0f, GameTuning.GarmentOnHostSize.z * 0.5f + 0.03f),
+                frameSize, frameMat, keepCollider: false);
+            frame.GetComponent<Renderer>().enabled = false;
 
             var bar = Prim(PrimitiveType.Cube, "PaintProgress", root.transform,
                 new Vector3(0f, h + 0.2f, -0.6f), new Vector3(1f, 0.09f, 0.09f), barMat, false);
@@ -484,11 +497,18 @@ namespace AlpacasOnFire.EditorTools
             var interact = Empty("InteractionAnchor", root.transform, new Vector3(0f, h * 0.6f, -0.75f));
 
             root.AddComponent<NetworkObject>();
+
+            // 塗抹表面：Mannequin 有 [RequireComponent]，這裡先加好並接上引用
+            var paint = root.AddComponent<GarmentPaintSurface>();
+            SetRef(paint, "_garmentRenderer", garment.GetComponent<Renderer>());
+            SetRef(paint, "_paintCollider", garment.GetComponent<Collider>());
+
             var m = root.AddComponent<Mannequin>();
             SetRef(m, "_interactionAnchor", interact.transform);
             SetRef(m, "_garmentAnchor", garmentAnchor.transform);
             SetRef(m, "_garmentRenderer", garment.GetComponent<Renderer>());
             SetRef(m, "_paintProgressBar", bar.transform);
+            SetRef(m, "_completionFrame", frame.GetComponent<Renderer>());
 
             var prefab = SavePrefab(root, "Machine_Mannequin");
             return new GameCatalog.ElementEntry { type = LevelElementType.Mannequin, prefab = prefab };
@@ -607,9 +627,6 @@ namespace AlpacasOnFire.EditorTools
                 if (it.kind == ItemKind.Shears)
                     outElements.Add(new GameCatalog.ElementEntry
                         { type = LevelElementType.Shears, prefab = it.prefab.gameObject });
-                else if (it.kind == ItemKind.SprayGun)
-                    outElements.Add(new GameCatalog.ElementEntry
-                        { type = LevelElementType.SprayGun, prefab = it.prefab.gameObject });
             }
         }
     }

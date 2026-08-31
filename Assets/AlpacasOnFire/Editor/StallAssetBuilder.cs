@@ -264,10 +264,8 @@ namespace AlpacasOnFire.EditorTools
 
             outElements.Add(new GameCatalog.ElementEntry
                 { type = LevelElementType.ToolRackShears, prefab = prefab });
-            outElements.Add(new GameCatalog.ElementEntry
-                { type = LevelElementType.ToolRackSprayGun, prefab = prefab });
 
-            BuildReport.Line("  OK  Machine_ToolRack（剃毛器架與噴槍架共用）");
+            BuildReport.Line("  OK  Machine_ToolRack（剃毛器架）");
         }
 
         // ---------------------------------------------------------------- 開張鈴

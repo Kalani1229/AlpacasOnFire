@@ -6,9 +6,9 @@ namespace AlpacasOnFire.Networking
     /// <summary>按鍵編號。Phase 2 新增互動（偷竊／吐口水）時往後加即可。</summary>
     public enum GameButton
     {
-        Interact  = 0, // Space
+        Interact   = 0, // Space 或 滑鼠左鍵
         ThrowCatch = 1, // Q
-        UseTool   = 2, // E（按住）
+        UseTool    = 2, // 滑鼠右鍵（按住）—— 塗抹之類的持續動作
     }
 
     /// <summary>

@@ -47,6 +47,23 @@ namespace AlpacasOnFire.EditorTools
             BuildReport.Save();
         }
 
+        /// <summary>
+        /// 給「一鍵重建」用的入口：不自己開 BuildReport（外面已經開了），
+        /// 也不再問要不要存檔（外面已經問過）。做完會停在擺攤測試場景。
+        /// </summary>
+        public static void RebuildForFullRebuild()
+        {
+            if (!LevelSceneBuilder.RequireCatalog()) return;
+
+            EnsureFolders();
+            CreateStallDefinition();
+            AssetDatabase.SaveAssets();
+            AssetDatabase.Refresh();
+
+            BuildSceneInternal();
+            RegisterInBuildSettings();
+        }
+
         [MenuItem("羊駝很忙/擺攤/2. 一鍵重置擺攤測試場景", priority = 41)]
         public static void ResetStallScene()
         {
@@ -91,7 +108,7 @@ namespace AlpacasOnFire.EditorTools
             if (!hasSuitcase) missing.Add("物品 Suitcase（手提箱）");
 
             // 工具架上會生出工具，所以工具本身的 prefab 也必須在
-            foreach (var kind in new[] { ItemKind.Shears, ItemKind.SprayGun })
+            foreach (var kind in new[] { ItemKind.Shears })
                 if (!catalog.items.Any(e => e.kind == kind && e.prefab != null))
                     missing.Add($"工具 {kind}");
 

@@ -12,7 +12,6 @@ namespace AlpacasOnFire.Core
         Garment = 6,       // 衣服
         Box = 7,           // 箱子
         Shears = 8,        // 剃毛器（工具）
-        SprayGun = 9,      // 噴槍（工具）
         Suitcase = 10,     // 手提箱（擺攤系統；拿著時佔用雙手）
     }
 
@@ -47,7 +46,6 @@ namespace AlpacasOnFire.Core
     {
         PlayerSpawn = 0,
         Shears = 1,
-        SprayGun = 2,
         SewingMachine = 3,
         Juicer = 4,
         Mannequin = 5,
@@ -72,7 +70,6 @@ namespace AlpacasOnFire.Core
         // 工具架：讓剃毛器與噴槍也能在網格上佔一格、也能被記進佈局。
         // 兩個類型共用同一個 prefab，由 DeviceType 決定架上放哪一種工具。
         ToolRackShears = 21,
-        ToolRackSprayGun = 22,
 
         // 開張鈴：襯布邊上的固定設施，不進網格、不佔格子、不能搬動。
         // 敲下去就開張，然後鈴鐺自己縮起來消失；下一場要開張時會再出現。

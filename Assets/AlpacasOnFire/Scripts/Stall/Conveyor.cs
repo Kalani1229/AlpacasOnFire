@@ -75,7 +75,14 @@ namespace AlpacasOnFire.Stall
 
                 if (nextZ >= halfLength)
                 {
-                    // 到末端：送出去並讓它落到出口錨點
+                    // 末端：前面還有一條同向的輸送帶就直接交棒，不要落地
+                    var next = FindNextConveyor();
+                    if (next != null)
+                    {
+                        item.transform.position = next.EntryPoint;
+                        continue;
+                    }
+
                     var exit = OutputAnchor.position;
                     item.DetachToGround(exit);
                     continue;
@@ -87,6 +94,40 @@ namespace AlpacasOnFire.Stall
                     nextZ);
                 item.transform.position = transform.TransformPoint(nextLocal);
             }
+        }
+
+        /// <summary>
+        /// 找「接在我前面、而且同方向」的下一條輸送帶。
+        /// 兩條同向的輸送帶擺在一起就會自動串成一條長線。
+        /// 只認正交相鄰的格子（斜角約 2.12 公尺，超過門檻所以不會誤判）。
+        /// </summary>
+        public Conveyor FindNextConveyor()
+        {
+            var forward = Direction.normalized;
+            float bestSqr = GameTuning.ConveyorLinkRadius * GameTuning.ConveyorLinkRadius;
+            Conveyor best = null;
+
+            for (int i = 0; i < All.Count; i++)
+            {
+                var other = All[i];
+                if (other == null || other == this || other.Object == null) continue;
+
+                // 必須同方向，不然東西會被推回來或卡在交界
+                if (Vector3.Dot(forward, other.Direction.normalized) < 0.9f) continue;
+
+                var offset = other.transform.position - transform.position;
+                offset.y = 0f;
+
+                // 必須在我前方
+                if (Vector3.Dot(forward, offset) <= 0.01f) continue;
+
+                float sqr = offset.sqrMagnitude;
+                if (sqr > bestSqr) continue;
+
+                bestSqr = sqr;
+                best = other;
+            }
+            return best;
         }
 
         public override void Render()

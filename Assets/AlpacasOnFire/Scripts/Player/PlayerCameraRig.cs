@@ -1,4 +1,6 @@
 using AlpacasOnFire.Core;
+using AlpacasOnFire.Items;
+using AlpacasOnFire.Stall;
 using UnityEngine;
 
 namespace AlpacasOnFire.Player
@@ -91,9 +93,42 @@ namespace AlpacasOnFire.Player
 
             transform.position = origin + back * _currentDistance;
             transform.rotation = rot;
+
+            UpdateBodyFade();
         }
 
-        /// <summary>互動／噴槍射線用的方向（＝畫面中心）。</summary>
+        /// <summary>互動／塗抹射線用的方向（＝畫面中心）。</summary>
         public Vector3 AimDirection => transform.forward;
+
+        /// <summary>
+        /// 拿著顏料、而且準心正對著畫布時，把自己的身體淡掉 ——
+        /// 不然第三人稱下羊駝會擋在鏡頭和衣服中間，看不到自己塗到哪裡。
+        ///
+        /// 條件刻意收得很窄（要同時「拿著顏料」和「瞄到畫布」），
+        /// 這樣平常走路不會一直閃。
+        /// </summary>
+        private void UpdateBodyFade()
+        {
+            var player = PlayerController.Local;
+            if (player == null || player.Object == null) return;
+
+            bool shouldFade = false;
+
+            if (player.Carry != null && player.Carry.Held is DyeCanisterTool)
+            {
+                float range = GameTuning.PaintRange + GameTuning.CameraDistance;
+                var hits = Physics.RaycastAll(transform.position, transform.forward,
+                                              range, ~0, QueryTriggerInteraction.Collide);
+                foreach (var h in hits)
+                {
+                    var surface = h.collider.GetComponentInParent<GarmentPaintSurface>();
+                    if (surface == null || !surface.Active) continue;
+                    shouldFade = true;
+                    break;
+                }
+            }
+
+            player.SetBodyFaded(shouldFade);
+        }
     }
 }

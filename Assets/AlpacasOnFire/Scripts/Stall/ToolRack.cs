@@ -118,7 +118,7 @@ namespace AlpacasOnFire.Stall
 
             // 架上有沒有工具，用小圖示的顏色表示
             var c = ToolAlive()
-                ? (ToolKind == ItemKind.Shears ? PlaceholderPalette.ShearsBlade : PlaceholderPalette.SprayNozzle)
+                ? PlaceholderPalette.ShearsBlade
                 : new Color(0.3f, 0.3f, 0.32f);
 
             _mpb ??= new MaterialPropertyBlock();

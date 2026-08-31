@@ -409,7 +409,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 4d796feac49284728ada581469c05287, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::AlpacasOnFire.Stall.SuitcaseItem
-  _kind: 10
+  _kind: 0
   _visualRoot: {fileID: 6116273180112883449}
   _tintTargets: []
   _groundOffset: 0.15

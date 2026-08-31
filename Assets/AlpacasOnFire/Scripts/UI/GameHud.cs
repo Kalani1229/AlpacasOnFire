@@ -63,10 +63,9 @@ namespace AlpacasOnFire.UI
             var root = transform;
 
             // 準心
-            var cross = UIFactory.Panel("Crosshair", root, new Color(1f, 1f, 1f, 0.65f),
-                new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f),
-                Vector2.zero, new Vector2(6f, 6f));
-            cross.raycastTarget = false;
+            // 準心：固定在畫面正中央的小白色半透明十字。
+            // 底下墊一層深色描邊，這樣在白衣服、淺色地面上也看得見。
+            BuildCrosshair(root);
 
             // 上方：時間與金額
             _timerLabel = UIFactory.Label("Timer", root, "03:00", 40, TextAnchor.UpperCenter, Color.white,
@@ -116,6 +115,30 @@ namespace AlpacasOnFire.UI
             _toastLabel = UIFactory.Label("Toast", root, "", 30, TextAnchor.MiddleCenter, Color.white,
                 new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f),
                 new Vector2(0f, -160f), new Vector2(1000f, 40f));
+        }
+
+        /// <summary>畫面正中央的十字準星。塗抹就是對著這個點刷，所以要一眼看得到。</summary>
+        private void BuildCrosshair(Transform root)
+        {
+            const float len = 13f;   // 十字的長度
+            const float thick = 2f;  // 線寬
+            const float outline = 1f;// 描邊厚度
+
+            var mid = new Vector2(0.5f, 0.5f);
+            var shadow = new Color(0f, 0f, 0f, 0.45f);
+            var white = new Color(1f, 1f, 1f, 0.75f);
+
+            // 先描邊、再白線（後建立的疊在上面）
+            Bar("CrosshairOutlineH", shadow, new Vector2(len + outline * 2f, thick + outline * 2f));
+            Bar("CrosshairOutlineV", shadow, new Vector2(thick + outline * 2f, len + outline * 2f));
+            Bar("CrosshairH", white, new Vector2(len, thick));
+            Bar("CrosshairV", white, new Vector2(thick, len));
+
+            void Bar(string name, Color color, Vector2 size)
+            {
+                var img = UIFactory.Panel(name, root, color, mid, mid, mid, Vector2.zero, size);
+                img.raycastTarget = false;
+            }
         }
 
         private OrderCard BuildCard(int index)
@@ -264,15 +287,15 @@ namespace AlpacasOnFire.UI
             }
             _promptLabel.text = prompt ?? "";
 
-            if (held is SprayGunTool gun)
+            if (held is DyeCanisterTool canister)
             {
                 _sprayBarBg.gameObject.SetActive(true);
                 var fillRt = _sprayBarFill.rectTransform;
-                fillRt.sizeDelta = new Vector2(256f * gun.Charge01, -4f);
-                _sprayBarFill.color = gun.Charge > 0f
-                    ? PlaceholderPalette.Dye(gun.LoadedColor)
+                fillRt.sizeDelta = new Vector2(256f * canister.Charge01, -4f);
+                _sprayBarFill.color = canister.HasPaint
+                    ? PlaceholderPalette.Dye(canister.Color)
                     : new Color(0.4f, 0.4f, 0.4f);
-                _sprayLabel.text = $"染劑 {gun.Charge01 * 100f:F0}%（{PlaceholderPalette.DyeName(gun.LoadedColor)}）　[E] 噴灑";
+                _sprayLabel.text = $"顏料 {canister.Charge01 * 100f:F0}%（{PlaceholderPalette.DyeName(canister.Color)}）　[右鍵按住] 刷上去";
             }
             else
             {

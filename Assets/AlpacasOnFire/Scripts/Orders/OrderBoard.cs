@@ -173,9 +173,9 @@ namespace AlpacasOnFire.Orders
         {
             if (!HasStallDevices()) return Pick(_colors, DyeColorType.White);
 
-            // 要染色得同時有果汁機（做染劑）和噴槍架（噴上去），少一個就只出白色訂單
+            // 要染色得有果汁機（榨顏料）和人偶（衣服掛上去才能刷），少一個就只出白色訂單
             bool canDye = HasStallDevice(LevelElementType.Juicer)
-                       && HasStallDevice(LevelElementType.ToolRackSprayGun);
+                       && HasStallDevice(LevelElementType.Mannequin);
 
             return canDye ? Pick(_colors, DyeColorType.White) : DyeColorType.White;
         }

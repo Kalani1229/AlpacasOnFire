@@ -31,6 +31,10 @@ namespace AlpacasOnFire.Player
         [SerializeField] private Renderer _garmentRenderer;
         [SerializeField] private Renderer _fleeceIndicator;
 
+        [Header("Fade")]
+        [Tooltip("擋住畫布時改用的半透明材質。由建置工具自動接上。")]
+        [SerializeField] private Material _fadeMaterial;
+
         [Header("Camera Rig")]
         [SerializeField] private GameObject _cameraRigPrefab;
 
@@ -41,13 +45,14 @@ namespace AlpacasOnFire.Player
         [Networked] public int Fleece { get; set; }
         [Networked] public NetworkBool HasGarmentNet { get; set; }
         [Networked] public GarmentSpec WornGarment { get; set; }
-        [Networked] public float PaintProgress { get; set; }
-        [Networked] public int PaintColorRaw { get; set; }
         [Networked] private TickTimer FleeceTimer { get; set; }
         [Networked] private NetworkButtons PreviousButtons { get; set; }
 
         private NetworkCharacterController _ncc;
         private PlayerCarry _carry;
+        private Renderer[] _fadeRenderers;
+        private Material[] _fadeOriginals;
+        private bool _bodyFaded;
         private PlayerInteractor _interactor;
         private MaterialPropertyBlock _mpb;
         private PlayerCameraRig _rig;
@@ -68,6 +73,7 @@ namespace AlpacasOnFire.Player
             _ncc = GetComponent<NetworkCharacterController>();
             ConfigureController();
             _carry = GetComponent<PlayerCarry>();
+            CacheFadeRenderers();
             _interactor = new PlayerInteractor(this);
             gameObject.name = $"Alpaca_P{ColorIndex + 1}";
 
@@ -310,8 +316,38 @@ namespace AlpacasOnFire.Player
             Tint(_bodyRenderer, PlaceholderPalette.PlayerColor(ColorIndex));
         }
 
+        /// <summary>
+        /// 第三人稱下自己的身體會擋住準心瞄的東西（尤其是塗衣服的時候）。
+        /// 這裡把整隻羊駝換成半透明材質，讓玩家看得到畫布。只對本機玩家做。
+        /// </summary>
+        public void SetBodyFaded(bool faded)
+        {
+            if (_bodyFaded == faded) return;
+            if (_fadeMaterial == null || _fadeRenderers == null) return;
+
+            _bodyFaded = faded;
+            for (int i = 0; i < _fadeRenderers.Length; i++)
+            {
+                if (_fadeRenderers[i] == null) continue;
+                _fadeRenderers[i].sharedMaterial = faded ? _fadeMaterial : _fadeOriginals[i];
+            }
+        }
+
+        public bool IsBodyFaded => _bodyFaded;
+
+        private void CacheFadeRenderers()
+        {
+            _fadeRenderers = GetComponentsInChildren<Renderer>(true);
+            _fadeOriginals = new Material[_fadeRenderers.Length];
+            for (int i = 0; i < _fadeRenderers.Length; i++)
+                _fadeOriginals[i] = _fadeRenderers[i] != null ? _fadeRenderers[i].sharedMaterial : null;
+        }
+
         private void Tint(Renderer r, Color c)
         {
+            // 淡出時連 MaterialPropertyBlock 的顏色也要降 alpha，
+            // 不然會蓋掉半透明材質原本的透明度
+            c.a = _bodyFaded ? GameTuning.LocalPlayerFadeAlpha : 1f;
             if (r == null) return;
             _mpb ??= new MaterialPropertyBlock();
             r.GetPropertyBlock(_mpb);
@@ -331,8 +367,6 @@ namespace AlpacasOnFire.Player
             if (!HasStateAuthority || HasGarmentNet) return false;
             HasGarmentNet = true;
             WornGarment = spec;
-            PaintProgress = 0f;
-            PaintColorRaw = (int)DyeColorType.White;
             return true;
         }
 
@@ -342,28 +376,9 @@ namespace AlpacasOnFire.Player
             if (!HasStateAuthority || !HasGarmentNet) return false;
             HasGarmentNet = false;
             WornGarment = default;
-            PaintProgress = 0f;
             return true;
         }
 
-        public void AddPaint(DyeColorType color, float amount)
-        {
-            if (!HasStateAuthority || !HasGarmentNet) return;
-
-            if (PaintColorRaw != (int)color)
-            {
-                PaintColorRaw = (int)color;
-                PaintProgress = 0f;
-            }
-
-            PaintProgress += amount;
-            if (PaintProgress < GameTuning.SprayPaintRequired) return;
-
-            PaintProgress = 0f;
-            var spec = WornGarment;
-            spec.Color = color;
-            WornGarment = spec;
-        }
 
         // ---------------- IInteractable（別的玩家對你做事） ----------------
 

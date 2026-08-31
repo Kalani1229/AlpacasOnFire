@@ -30,7 +30,7 @@ namespace AlpacasOnFire.EditorTools
         public const string Level01SceneName = "Level01_Workshop";
         public const string TitleSceneName  = "Title";
 
-        [MenuItem("羊駝很忙/2. 建立/更新關卡資料（測試關 + 第一關）", priority = 1)]
+        [MenuItem("羊駝很忙/舊版 Phase 1/建立-更新關卡資料（測試關 + 第一關）", priority = 90)]
         public static void CreateDefinitions()
         {
             EnsureFolders();
@@ -40,7 +40,7 @@ namespace AlpacasOnFire.EditorTools
             Debug.Log("[羊駝很忙] 關卡資料已建立於 " + LevelsDir);
         }
 
-        [MenuItem("羊駝很忙/3. 建置全部場景（標題 + 測試關 + 第一關）", priority = 2)]
+        [MenuItem("羊駝很忙/舊版 Phase 1/建置工坊時期場景（標題 + 測試關 + 第一關）", priority = 91)]
         public static void BuildAllScenes()
         {
             if (!EditorSceneManager.SaveCurrentModifiedScenesIfUserWantsTo()) return;
@@ -73,18 +73,26 @@ namespace AlpacasOnFire.EditorTools
             BuildReport.Info("三個場景都建好了，並已加入 Build Settings。");
         }
 
-        [MenuItem("羊駝很忙/0. 一鍵全部重建（資產 + 場景）", priority = -1)]
+        [MenuItem("羊駝很忙/0. 一鍵重建（資產 + 擺攤測試場景）", priority = -1)]
         public static void RebuildEverything()
         {
             if (!EditorSceneManager.SaveCurrentModifiedScenesIfUserWantsTo()) return;
 
-            BuildReport.Begin("一鍵全部重建");
+            BuildReport.Begin("一鍵重建");
+
+            // 資產（含擺攤裝備 —— PlaceholderAssetBuilder 內部會呼叫 StallAssetBuilder）
             PlaceholderAssetBuilder.BuildAllInternal();
-            BuildAllScenesInternal();
+
+            // 場景只重建「現在在用的」擺攤測試場景。
+            // 這裡刻意**不**碰 Phase 1 的 Title / Level_Test / Level01_Workshop ——
+            // 那些是工坊時期的舊場景，重建會把你丟回舊版本的樣子。
+            // 真的要動它們，走「舊版 Phase 1」子選單。
+            StallSceneBuilder.RebuildForFullRebuild();
+
             BuildReport.Save();
         }
 
-        [MenuItem("羊駝很忙/5. 重建目前場景的關卡內容", priority = 4)]
+        [MenuItem("羊駝很忙/3. 重建目前場景的關卡內容", priority = 3)]
         public static void RebuildCurrentSceneLevel()
         {
             if (!RequireCatalog()) return;
@@ -146,7 +154,6 @@ namespace AlpacasOnFire.EditorTools
                 LevelElementType.SewingMachine,
                 LevelElementType.Juicer,
                 LevelElementType.Mannequin,
-                LevelElementType.SprayGun,
                 LevelElementType.DyeSourceRed,
                 LevelElementType.AccessoryDispenser,
                 LevelElementType.BoxDispenser,
@@ -158,7 +165,7 @@ namespace AlpacasOnFire.EditorTools
             float startX = -(row.Length - 1) * 3f;
             for (int i = 0; i < row.Length; i++)
             {
-                float y = row[i] is LevelElementType.Shears or LevelElementType.SprayGun ? 0.35f : 0f;
+                float y = row[i] is LevelElementType.Shears ? 0.35f : 0f;
                 def.Add(row[i], new Vector3(startX + i * 6f, y, 0f), new Vector3(0f, 180f, 0f));
             }
 
@@ -208,8 +215,6 @@ namespace AlpacasOnFire.EditorTools
             def.Add(LevelElementType.Juicer, new Vector3(-1f, 0f, 4.5f), new Vector3(0f, 180f, 0f));
             def.Add(LevelElementType.Mannequin, new Vector3(-1.5f, 0f, -3.5f), new Vector3(0f, 0f, 0f));
             def.Add(LevelElementType.Mannequin, new Vector3(1.5f, 0f, -3.5f), new Vector3(0f, 0f, 0f));
-            def.Add(LevelElementType.SprayGun, new Vector3(0.6f, 0.35f, 1.2f));
-            def.Add(LevelElementType.SprayGun, new Vector3(1.6f, 0.35f, 1.2f));
             var acc = def.Add(LevelElementType.AccessoryDispenser, new Vector3(4f, 0f, 4.5f), new Vector3(0f, 180f, 0f));
             acc.variant = AccessoryType.Button.ToString();
             def.Add(LevelElementType.RecyclingMachine, new Vector3(4f, 0f, -4.5f));

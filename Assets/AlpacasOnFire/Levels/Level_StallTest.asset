@@ -23,63 +23,63 @@ MonoBehaviour:
   orderAccessories: 00
   accessoryChance: 0
   elements:
-  - id: f24290d6
+  - id: fd93fda5
     type: 15
     position: {x: 0, y: -0.1, z: 0}
     rotationEuler: {x: 0, y: 0, z: 0}
     scale: {x: 6, y: 1, z: 6}
     variant: 
     intParam: 0
-  - id: b5d85db2
+  - id: 0a686600
     type: 0
     position: {x: -3, y: 0, z: -12}
     rotationEuler: {x: 0, y: 0, z: 0}
     scale: {x: 1, y: 1, z: 1}
     variant: 
     intParam: 0
-  - id: a7849e86
+  - id: f1746bba
     type: 0
     position: {x: 3, y: 0, z: -12}
     rotationEuler: {x: 0, y: 0, z: 0}
     scale: {x: 1, y: 1, z: 1}
     variant: 
     intParam: 0
-  - id: 697b3502
+  - id: 0bda5714
     type: 20
     position: {x: 0, y: 0, z: -9}
     rotationEuler: {x: 0, y: 0, z: 0}
     scale: {x: 1, y: 1, z: 1}
     variant: 
     intParam: 0
-  - id: b2db05b8
+  - id: 3bbe9540
     type: 8
     position: {x: -14, y: 0, z: 10}
     rotationEuler: {x: 0, y: 0, z: 0}
     scale: {x: 1, y: 1, z: 1}
     variant: Red
     intParam: 0
-  - id: b6cccd03
+  - id: 2ef6efa6
     type: 8
     position: {x: -14, y: 0, z: 14}
     rotationEuler: {x: 0, y: 0, z: 0}
     scale: {x: 1, y: 1, z: 1}
     variant: Red
     intParam: 0
-  - id: 3c26c73c
+  - id: bc3c5371
     type: 8
     position: {x: -10, y: 0, z: 12}
     rotationEuler: {x: 0, y: 0, z: 0}
     scale: {x: 1, y: 1, z: 1}
     variant: Red
     intParam: 0
-  - id: 03516a0e
+  - id: 88143776
     type: 16
     position: {x: 16, y: -1.2, z: 0}
     rotationEuler: {x: 0, y: 0, z: 18}
     scale: {x: 14, y: 1, z: 14}
     variant: 
     intParam: 0
-  - id: ce0825fe
+  - id: 06bf68be
     type: 17
     position: {x: 0, y: 0, z: 16}
     rotationEuler: {x: 0, y: 180, z: 0}

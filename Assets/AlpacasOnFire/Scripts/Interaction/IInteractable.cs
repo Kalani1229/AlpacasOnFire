@@ -72,7 +72,5 @@ namespace AlpacasOnFire.Interaction
         bool TryWear(GarmentSpec spec);
         /// <summary>脫下衣服並回傳規格。只在 StateAuthority 呼叫。</summary>
         bool TryTakeOff(out GarmentSpec spec);
-        /// <summary>噴漆進度（0~1）。噴滿後套用顏色。</summary>
-        void AddPaint(DyeColorType color, float amount);
     }
 }

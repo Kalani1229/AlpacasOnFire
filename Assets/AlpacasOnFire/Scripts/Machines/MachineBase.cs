@@ -13,7 +13,7 @@ namespace AlpacasOnFire.Machines
     /// 產出的處理方式（本階段的設計決定）：
     ///  - 完成品**不會噴到地上**，會留在機台裡，玩家對機台按 Space 才拿得到
     ///    （原本噴出來的成品很難撿）
-    ///  - 例外：如果出料口旁邊有一條**朝外送**的輸送帶，就直接把成品放到輸送帶靠機台那一端
+    ///  - 例外：如果機台**旁邊任一面**有一條朝外送的輸送帶，就直接把成品放到輸送帶靠機台那一端
     ///  - 成品沒被拿走之前**機台會卡住**，不能開始下一批
     ///
     /// 狀態用顏色表示：待命（綠）→ 處理中（黃）→ 完成待取（各機台自訂）。
@@ -127,7 +127,7 @@ namespace AlpacasOnFire.Machines
         }
 
         /// <summary>
-        /// 找出料口旁邊、而且**方向是離開這台機器**的輸送帶。
+        /// 找相鄰、而且**方向是離開這台機器**的輸送帶。
         /// 找得到就把成品生在輸送帶靠機台的那一端。
         /// </summary>
         private bool TryEjectToConveyor(GarmentSpec spec)
@@ -141,7 +141,9 @@ namespace AlpacasOnFire.Machines
 
         private Conveyor FindOutgoingConveyor()
         {
-            var origin = OutputAnchor.position;
+            // 用「機台中心到輸送帶中心」判定，不看出料口在哪一面 ——
+            // 規則是「機台**旁**擺了一條朝外送的輸送帶」，四個方向都算。
+            // 相鄰格 1.5 公尺、斜角 2.12 公尺，門檻 1.9 剛好只認正交相鄰。
             float bestSqr = GameTuning.MachineConveyorLinkRadius * GameTuning.MachineConveyorLinkRadius;
             Conveyor best = null;
 
@@ -152,13 +154,11 @@ namespace AlpacasOnFire.Machines
 
                 var toConveyor = c.transform.position - transform.position;
                 toConveyor.y = 0f;
-                if (toConveyor.sqrMagnitude < 0.0001f) continue;
+                float sqr = toConveyor.sqrMagnitude;
+                if (sqr < 0.0001f || sqr > bestSqr) continue;
 
                 // 必須是「從機台往外送」，不然東西會被推回機台
                 if (Vector3.Dot(c.Direction.normalized, toConveyor.normalized) < 0.5f) continue;
-
-                float sqr = (c.EntryPoint - origin).sqrMagnitude;
-                if (sqr > bestSqr) continue;
 
                 bestSqr = sqr;
                 best = c;

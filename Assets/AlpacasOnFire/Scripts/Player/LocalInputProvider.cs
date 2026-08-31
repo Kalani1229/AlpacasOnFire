@@ -67,15 +67,29 @@ namespace AlpacasOnFire.Player
             }
 
             // ---- 按鍵（用 latch 保證單幀點擊不會被 tick 漏掉）----
-            if (kb != null && LookEnabled)
+            //
+            // 互動：Space 或滑鼠左鍵（兩個都留著，鍵盤黨與滑鼠黨都順手）
+            // 持續使用工具：滑鼠右鍵按住（塗抹就是對著畫面中央的準心刷）
+            if (LookEnabled)
             {
-                _latch.Hold(GameButton.Interact,   kb.spaceKey.isPressed);
-                _latch.Hold(GameButton.ThrowCatch, kb.qKey.isPressed);
-                _latch.Hold(GameButton.UseTool,    kb.eKey.isPressed);
+                bool interact = (kb != null && kb.spaceKey.isPressed)
+                             || (mouse != null && mouse.leftButton.isPressed);
+                bool throwCatch = kb != null && kb.qKey.isPressed;
+                bool useTool = mouse != null && mouse.rightButton.isPressed;
 
-                if (kb.spaceKey.wasPressedThisFrame) _latch.Latch(GameButton.Interact);
-                if (kb.qKey.wasPressedThisFrame)     _latch.Latch(GameButton.ThrowCatch);
-                if (kb.eKey.wasPressedThisFrame)     _latch.Latch(GameButton.UseTool);
+                _latch.Hold(GameButton.Interact,   interact);
+                _latch.Hold(GameButton.ThrowCatch, throwCatch);
+                _latch.Hold(GameButton.UseTool,    useTool);
+
+                if ((kb != null && kb.spaceKey.wasPressedThisFrame)
+                 || (mouse != null && mouse.leftButton.wasPressedThisFrame))
+                    _latch.Latch(GameButton.Interact);
+
+                if (kb != null && kb.qKey.wasPressedThisFrame)
+                    _latch.Latch(GameButton.ThrowCatch);
+
+                if (mouse != null && mouse.rightButton.wasPressedThisFrame)
+                    _latch.Latch(GameButton.UseTool);
             }
             else
             {
