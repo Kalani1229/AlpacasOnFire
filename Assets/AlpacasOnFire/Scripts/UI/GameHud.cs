@@ -275,9 +275,9 @@ namespace AlpacasOnFire.UI
 
             // 提示：接住優先於其他互動（跟 Q 鍵的判定順序一致）
             string prompt = null;
-            if (p.Carry.FindIncoming() != null)
+            if (p.Carry.FindCatchable(GameTuning.CatchManualRadius, requireFacing: false) != null)
             {
-                prompt = "[Q] 接住！";
+                prompt = "[Space] 接住！";
             }
             else
             {

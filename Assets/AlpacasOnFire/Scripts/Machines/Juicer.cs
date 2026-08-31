@@ -13,7 +13,7 @@ namespace AlpacasOnFire.Machines
     /// 顏色規則：處理中維持一般的忙碌色（黃），**做好了才亮出染劑的顏色** ——
     /// 這樣「顏色」只代表一件事：可以來拿了。
     /// </summary>
-    public class Juicer : MachineBase
+    public class Juicer : MachineBase, IThrownItemReceiver
     {
         [Networked] public int PendingColorRaw { get; set; }
 
@@ -63,9 +63,28 @@ namespace AlpacasOnFire.Machines
 
             if (Processing || ctx.HeldKind != ItemKind.DyeMaterial) return;
 
-            PendingColorRaw = (int)ctx.Held.Spec.Color;
+            var color = ctx.Held.Spec.Color;
             ctx.Player.Carry.ConsumeHeld();
+            InsertDye(color);
+        }
+
+        /// <summary>放一份染料原料進去就開工。手放進去和被丟進來共用這段。</summary>
+        private void InsertDye(DyeColorType color)
+        {
+            PendingColorRaw = (int)color;
             BeginProcess(GameTuning.JuicerProcessSeconds);
+        }
+
+        // ---------------- 被丟進來的染料 ----------------
+
+        public bool CanAcceptThrown(CarriableItem item)
+            => item != null && item.Kind == ItemKind.DyeMaterial && !Processing && !HasOutput;
+
+        public bool AcceptThrown(CarriableItem item)
+        {
+            if (!HasStateAuthority || !CanAcceptThrown(item)) return false;
+            InsertDye(item.Spec.Color);
+            return true;
         }
 
         // ---------------- 外觀 ----------------

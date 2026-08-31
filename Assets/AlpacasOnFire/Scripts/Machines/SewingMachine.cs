@@ -12,7 +12,7 @@ namespace AlpacasOnFire.Machines
     /// **一台機器只做一種版型**（由 _outputPattern 決定），不再有選版型的介面。
     /// 之後要做褲子機或帽子機，複製 prefab 改這個欄位就好，程式不用動。
     /// </summary>
-    public class SewingMachine : MachineBase
+    public class SewingMachine : MachineBase, IThrownItemReceiver
     {
         [Header("Sewing")]
         [Tooltip("這台機器產出的版型。一台機器只做一種。")]
@@ -68,14 +68,32 @@ namespace AlpacasOnFire.Machines
 
             if (Processing || ctx.HeldKind != ItemKind.Wool) return;
 
-            WoolCount++;
             ctx.Player.Carry.ConsumeHeld();
+            InsertWool();
+        }
+
+        /// <summary>放一份羊毛進去，湊滿就開工。手放進去和被丟進來共用這段。</summary>
+        private void InsertWool()
+        {
+            WoolCount++;
             GameAudio.PlayAt(SfxId.Pickup, transform.position);
 
             if (WoolCount < GameTuning.SewingWoolRequired) return;
 
             WoolCount = 0;
             BeginProcess(GameTuning.SewingProcessSeconds);
+        }
+
+        // ---------------- 被丟進來的羊毛 ----------------
+
+        public bool CanAcceptThrown(CarriableItem item)
+            => item != null && item.Kind == ItemKind.Wool && !Processing && !HasOutput;
+
+        public bool AcceptThrown(CarriableItem item)
+        {
+            if (!HasStateAuthority || !CanAcceptThrown(item)) return false;
+            InsertWool();
+            return true;
         }
 
         // ---------------- 外觀 ----------------

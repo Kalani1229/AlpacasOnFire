@@ -27,6 +27,8 @@ namespace AlpacasOnFire.Items
         [Networked] public NetworkBool InFlight { get; set; }
         [Networked] public Vector3 FlightVelocity { get; set; }
         [Networked] public float FlightElapsed { get; set; }
+        /// <summary>誰丟出來的。剛丟出的短時間內丟的人自己接不到。</summary>
+        [Networked] public NetworkId ThrowerId { get; set; }
         [Networked] public GarmentSpec Spec { get; set; }
 
         private Collider[] _colliders;
@@ -122,6 +124,7 @@ namespace AlpacasOnFire.Items
             HolderId = default;
             InFlight = true;
             FlightElapsed = 0f;
+            ThrowerId = player.Object.Id;
             var dir = (direction.normalized + Vector3.up * GameTuning.ThrowUpwardRatio).normalized;
             FlightVelocity = dir * GameTuning.ThrowSpeed;
             transform.position = player.HandAnchor.position;
@@ -133,10 +136,19 @@ namespace AlpacasOnFire.Items
             var v = FlightVelocity + Vector3.down * (GameTuning.ThrowGravity * dt);
             var next = transform.position + v * dt;
 
-            // 撞到場景或落地就停下來
             if (Physics.Linecast(transform.position, next, out var hit, ~0, QueryTriggerInteraction.Ignore)
                 && hit.collider.GetComponentInParent<CarriableItem>() != this)
             {
+                // 撞到的東西收得下這個物品 -> 直接進去，不用有人站旁邊按 Space
+                var receiver = hit.collider.GetComponentInParent<IThrownItemReceiver>();
+                if (receiver != null && receiver.CanAcceptThrown(this) && receiver.AcceptThrown(this))
+                {
+                    // 收下之後這個物件就沒用了。Despawn 之後不能再碰任何欄位。
+                    Runner.Despawn(Object);
+                    return;
+                }
+
+                // 撞到牆或地板：停下來
                 InFlight = false;
                 FlightVelocity = Vector3.zero;
                 transform.position = hit.point + Vector3.up * _groundOffset;
@@ -162,19 +174,32 @@ namespace AlpacasOnFire.Items
             return p;
         }
 
-        /// <summary>這個物件是不是正朝著 player 飛過來（Q 鍵接住判定用）。</summary>
-        public bool IsFlyingToward(PlayerController player, out float distance)
+        /// <summary>
+        /// 這個滯空中的物品能不能被 player 接到。
+        ///
+        /// requireFacing = true  -> 自動接住（空手時每個 tick 自己判定），要大致面向物品
+        /// requireFacing = false -> 主動接住（按 Space／左鍵），範圍大一點、不管面向
+        ///
+        /// 兩種都排除「剛丟出去的那一瞬間、丟的人自己」——
+        /// 沒有這條的話站著不動丟出去會立刻被自己接回來，等於丟不出去。
+        /// </summary>
+        public bool CanBeCaughtBy(PlayerController player, float radius, bool requireFacing, out float distance)
         {
             distance = float.MaxValue;
-            if (!InFlight || player == null) return false;
+            if (!InFlight || player == null || player.Object == null) return false;
 
-            var toPlayer = player.CatchAnchor.position - transform.position;
-            distance = toPlayer.magnitude;
-            if (distance > GameTuning.CatchRadius) return false;
+            if (ThrowerId.IsValid && ThrowerId == player.Object.Id
+                && FlightElapsed < GameTuning.ThrowerCatchGrace) return false;
 
-            // 必須是正在接近，不然剛丟出去的東西會被自己接回來
-            float closing = Vector3.Dot(FlightVelocity, toPlayer.normalized);
-            return closing >= GameTuning.CatchMinClosingSpeed;
+            var toItem = transform.position - player.CatchAnchor.position;
+            distance = toItem.magnitude;
+            if (distance > radius) return false;
+
+            if (!requireFacing) return true;
+
+            var flat = new Vector3(toItem.x, 0f, toItem.z);
+            if (flat.sqrMagnitude < 0.0001f) return true;   // 正好在頭頂上
+            return Vector3.Dot(player.transform.forward, flat.normalized) >= GameTuning.CatchFacingDot;
         }
 
         // ---------------- 外觀 ----------------

@@ -40,11 +40,21 @@ namespace AlpacasOnFire.Core
         public const float EyeHeight           = 1.5f;
 
         // ---------- 丟出 / 接住 ----------
-        public const float ThrowSpeed          = 9.0f;   // m/s
-        public const float ThrowUpwardRatio    = 0.25f;  // 往上加的比例
+        // 平視丟出時的水平射程約 7.8 公尺 ＝ 襯布網格 5 格多一點。
+        // 速度拉高、上拋比例壓低 —— 射程一樣但飛得又快又平（滯空 0.5 秒，原本 0.62 秒）。
+        // 平一點也比較好瞄準機台，扔進機台才有機會成功。
+        public const float ThrowSpeed          = 16f;    // m/s
+        public const float ThrowUpwardRatio    = 0.18f;  // 往上加的比例
         public const float ThrowGravity        = 20f;
-        public const float CatchRadius         = 1.8f;   // 飛行物在這個半徑內可被接住
-        public const float CatchMinClosingSpeed= 0.5f;   // 必須是「正在接近」才算飛向你
+        // 接住分兩層：
+        //  自動 —— 空手 + 大致面向 + 小範圍，什麼都不用按
+        //  主動 —— 按接住鍵（Space／左鍵），範圍大一點、也不要求面向，
+        //          而且**接到了才會**把原本手上的東西放到腳邊
+        public const float CatchAutoRadius     = 1.8f;   // 自動接住的半徑
+        public const float CatchManualRadius   = 2.6f;   // 按鍵接住的半徑（比自動大一點點）
+        public const float CatchFacingDot      = 0.25f;  // 自動接住要「大致面向」的夾角（約 ±75 度）
+        /// <summary>剛丟出去的這段時間，丟的人自己接不到 —— 不然站著不動丟會馬上被自己接回來。</summary>
+        public const float ThrowerCatchGrace   = 0.45f;
         public const float ItemFlightMaxTime   = 6f;     // 保險：飛太久就落地
 
         // ---------- 剃毛 ----------

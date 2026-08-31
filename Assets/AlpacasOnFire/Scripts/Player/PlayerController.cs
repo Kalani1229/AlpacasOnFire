@@ -147,10 +147,15 @@ namespace AlpacasOnFire.Player
                     var ctx = _interactor.BuildContext();
 
                     if (pressed.IsSet(GameButton.ThrowCatch))
-                        _carry.HandleThrowCatch(in ctx);
+                        _carry.HandleThrow(in ctx);
 
                     if (pressed.IsSet(GameButton.Interact))
-                        _interactor.TryInteract();
+                    {
+                        // 接住優先於情境互動：有東西滯空在接得到的範圍內時，
+                        // Space／左鍵一律先算接住；沒接到才跑正常的互動。
+                        if (!_carry.TryManualCatch())
+                            _interactor.TryInteract();
+                    }
 
                     _carry.TickTool(in ctx, input.Buttons.IsSet(GameButton.UseTool), Runner.DeltaTime);
                 }

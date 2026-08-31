@@ -33,6 +33,8 @@ namespace AlpacasOnFire.Player
         {
             if (!HasStateAuthority) return;
 
+            TickAutoCatch();
+
             // 自我修復：手上的東西被別人 Despawn 掉時，HeldId 會變成一個指不到東西的 id。
             // 那會造成「UI 顯示手上有東西、畫面上卻什麼都沒有，而且再也放不掉」。
             // 這裡每個 tick 檢查一次，發現就清掉。
@@ -88,26 +90,12 @@ namespace AlpacasOnFire.Player
             return item;
         }
 
-        // ---------------- Q：丟出 / 接住 ----------------
+        // ---------------- 丟出（Q）----------------
 
-        /// <summary>
-        /// Q 鍵的判定優先權：只要有東西正飛向自己，一律先接住；否則才是丟出手上的東西。
-        /// </summary>
-        public void HandleThrowCatch(in InteractionContext ctx)
+        /// <summary>Q 只負責丟出。接住已經移到互動鍵（Space／左鍵）與自動接住。</summary>
+        public void HandleThrow(in InteractionContext ctx)
         {
-            if (!HasStateAuthority) return;
-
-            var incoming = FindIncoming();
-            if (incoming != null)
-            {
-                if (HasItem) Drop();          // 手上有東西就先放下，才接得住
-                incoming.AttachTo(_player);
-                HeldId = incoming.Object.Id;
-                GameAudio.PlayAt(SfxId.Catch, transform.position);
-                return;
-            }
-
-            if (!HasItem) return;
+            if (!HasStateAuthority || !HasItem) return;
 
             var item = Held;
             HeldId = default;
@@ -115,8 +103,10 @@ namespace AlpacasOnFire.Player
             GameAudio.PlayAt(SfxId.Throw, transform.position);
         }
 
-        /// <summary>有沒有東西正飛向我（也給 HUD 顯示「接住」提示用）。</summary>
-        public CarriableItem FindIncoming()
+        // ---------------- 接住 ----------------
+
+        /// <summary>找一個接得到的滯空物品，最近的優先。</summary>
+        public CarriableItem FindCatchable(float radius, bool requireFacing)
         {
             CarriableItem best = null;
             float bestDist = float.MaxValue;
@@ -124,10 +114,50 @@ namespace AlpacasOnFire.Player
             for (int i = 0; i < CarriableItem.All.Count; i++)
             {
                 var item = CarriableItem.All[i];
-                if (item == null || !item.IsFlyingToward(_player, out float d)) continue;
+                if (item == null) continue;
+                if (!item.CanBeCaughtBy(_player, radius, requireFacing, out float d)) continue;
                 if (d < bestDist) { bestDist = d; best = item; }
             }
             return best;
+        }
+
+        /// <summary>
+        /// 自動接住：空手、大致面向、在小範圍內就直接拿到，什麼都不用按。
+        /// 每個 tick 在狀態權威端跑。
+        /// </summary>
+        private void TickAutoCatch()
+        {
+            if (HasItem) return;
+
+            var item = FindCatchable(GameTuning.CatchAutoRadius, requireFacing: true);
+            if (item == null) return;
+
+            Catch(item);
+        }
+
+        /// <summary>
+        /// 主動接住（互動鍵）：範圍比自動大一點、也不要求面向。
+        ///
+        /// **接到了才會把原本手上的東西放到腳邊**；沒接到就什麼都不做，
+        /// 手上的東西不會白白掉出去。回傳有沒有接到，讓呼叫端決定要不要改跑情境互動。
+        /// </summary>
+        public bool TryManualCatch()
+        {
+            if (!HasStateAuthority) return false;
+
+            var item = FindCatchable(GameTuning.CatchManualRadius, requireFacing: false);
+            if (item == null) return false;
+
+            if (HasItem) Drop();   // 接到了才拋棄手上的東西
+            Catch(item);
+            return true;
+        }
+
+        private void Catch(CarriableItem item)
+        {
+            item.AttachTo(_player);
+            HeldId = item.Object.Id;
+            GameAudio.PlayAt(SfxId.Catch, transform.position);
         }
 
         // ---------------- E：持續使用工具 ----------------

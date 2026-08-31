@@ -17,7 +17,7 @@ namespace AlpacasOnFire.Stall
     /// 造型上有明確的窗口朝向：+Z 是面向顧客的那一側，CustomerQueueAnchor 標出
     /// 下一批顧客的排隊位置（本批只是一個空物件與 Gizmo，沒有任何邏輯）。
     /// </summary>
-    public class DeliveryCounter : NetworkInteractable
+    public class DeliveryCounter : NetworkInteractable, IThrownItemReceiver
     {
         [Header("Delivery Counter")]
         [SerializeField] private Transform _customerQueueAnchor;
@@ -54,6 +54,27 @@ namespace AlpacasOnFire.Stall
 
             if (!CanSellNow()) return "還沒開張，不能交貨";
             return $"[Space] 交貨 {garment.Spec.Describe()}";
+        }
+
+        // ---------------- 被丟過來的衣服 ----------------
+
+        /// <summary>
+        /// 直接把做好的衣服扔進窗口出貨。
+        /// 注意：**比對不到訂單就不收**（回傳 false），衣服會照常落地 ——
+        /// 跟手動交貨失敗時衣服留在手上是同一個原則，不會憑空消失。
+        /// </summary>
+        public bool CanAcceptThrown(CarriableItem item)
+            => item is GarmentItem && CanSellNow() && OrderBoard.Instance != null;
+
+        public bool AcceptThrown(CarriableItem item)
+        {
+            if (!HasStateAuthority || !CanAcceptThrown(item)) return false;
+            if (item is not GarmentItem garment) return false;
+
+            if (!OrderBoard.Instance.TryDeliver(garment.Spec)) return false;
+
+            GameAudio.PlayAt(SfxId.ShipSuccess, transform.position);
+            return true;
         }
 
         public override void Interact(in InteractionContext ctx)
