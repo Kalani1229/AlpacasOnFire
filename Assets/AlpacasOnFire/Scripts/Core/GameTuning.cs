@@ -61,10 +61,10 @@ namespace AlpacasOnFire.Core
 
         // ---------- 塗抹（染劑罐）----------
         public const float PaintCapacity        = 100f;  // 一罐顏料的總量
-        public const float PaintDrainPerSecond  = 22f;   // 按住 E 每秒消耗，滿罐約可刷 4.5 秒
+        public const float PaintDrainPerSecond  = 4.4f;  // 按住右鍵每秒消耗，滿罐約可刷 22 秒
         public const float PaintRange           = 2.6f;  // 刷得到的距離
         public const float PaintBrushRadiusUv   = 0.05f; // 筆刷半徑（UV 空間，0~1）
-        public const float PaintCoverageRequired= 0.30f; // 塗到三成就算是這個顏色的衣服
+        public const float PaintCoverageRequired= 0.18f; // 塗到不到兩成就算是這個顏色的衣服
         /// <summary>達標時邊框發光幾秒，告訴玩家「這件完成了」。</summary>
         public const float PaintCompleteGlowSeconds = 3f;
 
