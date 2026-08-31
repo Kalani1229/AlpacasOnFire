@@ -572,7 +572,12 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::AlpacasOnFire.Stall.PlayerStallAgent
   _PendingTypeRaw: 0
-  _PendingYaw: 0
+  _PendingFacing: 0
+  _HasOrigin:
+    _value: 0
+  _OriginCellX: 0
+  _OriginCellZ: 0
+  _OriginFacing: 0
 --- !u!1 &8936866678244721820
 GameObject:
   m_ObjectHideFlags: 0

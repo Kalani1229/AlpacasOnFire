@@ -29,6 +29,8 @@ namespace AlpacasOnFire.EditorTools
             Add(failures, "Item_Suitcase", () => outItems.Add(BuildSuitcase(itemLayer)));
             Add(failures, "Machine_DeliveryCounter", () => outElements.Add(BuildDeliveryCounter()));
             Add(failures, "Machine_Conveyor", () => outElements.Add(BuildConveyor()));
+            Add(failures, "Machine_ToolRack", () => BuildToolRacks(outElements));
+            Add(failures, "Stall_ServiceBell", () => outElements.Add(BuildServiceBell()));
             Add(failures, "Level_SuitcaseSpawn", () => outElements.Add(BuildSuitcaseSpawnMarker()));
 
             // 縫紉機／果汁機／人偶要能被擺出來與收回：補一個 DeployHandle 子物件
@@ -211,6 +213,103 @@ namespace AlpacasOnFire.EditorTools
             return new GameCatalog.ElementEntry
             {
                 type = LevelElementType.Conveyor,
+                prefab = prefab,
+            };
+        }
+
+        // ---------------------------------------------------------------- 工具架
+
+        /// <summary>
+        /// 剃毛器架與噴槍架共用同一個 prefab，靠 DeployableDevice 的裝備類型分辨。
+        /// 兩個 LevelElementType 指向同一份資產，省一個 prefab 也省一次維護。
+        ///
+        /// 注意 DeployHandle 上的 _deviceType 只是「沒有網路狀態時的退路」——
+        /// 實際生成時 StallManager 會用 MarkDeployed() 把正確的類型寫進 [Networked] 欄位，
+        /// 所以同一份 prefab 兩種用途不會混淆。
+        /// </summary>
+        private static void BuildToolRacks(List<GameCatalog.ElementEntry> outElements)
+        {
+            var frameMat = Mat("M_ToolRackFrame", new Color(0.45f, 0.38f, 0.28f));
+            var iconMat = Mat("M_ToolRackIcon", PlaceholderPalette.ShearsBlade);
+
+            var root = new GameObject("Machine_ToolRack");
+            const float h = 1.0f;
+            float w = GameTuning.MachineFootprint * 0.62f;
+
+            Prim(PrimitiveType.Cube, "Post", root.transform, new Vector3(0f, h * 0.5f, 0f),
+                 new Vector3(0.16f, h, 0.16f), frameMat);
+            Prim(PrimitiveType.Cube, "Base", root.transform, new Vector3(0f, 0.06f, 0f),
+                 new Vector3(w, 0.12f, w), frameMat);
+            Prim(PrimitiveType.Cube, "Arm", root.transform, new Vector3(0f, h, 0f),
+                 new Vector3(w * 0.9f, 0.1f, 0.16f), frameMat, keepCollider: false);
+
+            var icon = Prim(PrimitiveType.Sphere, "ToolIcon", root.transform,
+                            new Vector3(0f, h + 0.16f, 0f), Vector3.one * 0.2f, iconMat,
+                            keepCollider: false);
+
+            // 工具生在架子前方一點點，玩家一眼看得到、也伸手就拿得到
+            var toolAnchor = Empty("ToolAnchor", root.transform, new Vector3(0f, h * 0.75f, 0.25f));
+            var interact = Empty("InteractionAnchor", root.transform, new Vector3(0f, h * 0.7f, -0.5f));
+
+            root.AddComponent<NetworkObject>();
+            var rack = root.AddComponent<ToolRack>();
+            SetRef(rack, "_interactionAnchor", interact.transform);
+            SetRef(rack, "_toolAnchor", toolAnchor.transform);
+            SetRef(rack, "_toolIcon", icon.GetComponent<Renderer>());
+
+            AddDeployHandle(root, LevelElementType.ToolRackShears,
+                            new Vector3(0f, h * 0.5f, 0f), new Vector3(w * 1.3f, h, w * 1.3f));
+
+            var prefab = SavePrefab(root, "Machine_ToolRack");
+
+            outElements.Add(new GameCatalog.ElementEntry
+                { type = LevelElementType.ToolRackShears, prefab = prefab });
+            outElements.Add(new GameCatalog.ElementEntry
+                { type = LevelElementType.ToolRackSprayGun, prefab = prefab });
+
+            BuildReport.Line("  OK  Machine_ToolRack（剃毛器架與噴槍架共用）");
+        }
+
+        // ---------------------------------------------------------------- 開張鈴
+
+        /// <summary>
+        /// 開張鈴：襯布背緣的固定設施，**沒有 DeployHandle** ——
+        /// 它是控制不是裝備，不進網格、不佔格子、不能被搬動。
+        /// 由 StallManager 在進佈置模式時生成、敲掉或收攤時消失。
+        /// </summary>
+        private static GameCatalog.ElementEntry BuildServiceBell()
+        {
+            var baseMat = Mat("M_BellBase", new Color(0.35f, 0.26f, 0.18f));
+            var domeMat = Mat("M_BellDome", new Color(0.98f, 0.82f, 0.30f));
+
+            var root = new GameObject("Stall_ServiceBell");
+            float h = GameTuning.StallBellHeight;
+
+            // 小柱子 + 檯面，讓鈴鐺立在羊駝按得到的高度
+            Prim(PrimitiveType.Cylinder, "Post", root.transform, new Vector3(0f, h * 0.5f, 0f),
+                 new Vector3(0.18f, h * 0.5f, 0.18f), baseMat);
+            Prim(PrimitiveType.Cylinder, "Plate", root.transform, new Vector3(0f, h, 0f),
+                 new Vector3(0.5f, 0.03f, 0.5f), baseMat);
+
+            // 鈴身：半球用壓扁的球代替，佔位階段夠用了
+            var dome = Prim(PrimitiveType.Sphere, "Dome", root.transform,
+                            new Vector3(0f, h + 0.12f, 0f),
+                            new Vector3(0.36f, 0.26f, 0.36f), domeMat, keepCollider: false);
+            Prim(PrimitiveType.Sphere, "Knob", root.transform, new Vector3(0f, h + 0.26f, 0f),
+                 Vector3.one * 0.09f, domeMat, keepCollider: false);
+
+            var interact = Empty("InteractionAnchor", root.transform, new Vector3(0f, h + 0.1f, 0f));
+
+            root.AddComponent<NetworkObject>();
+            var bell = root.AddComponent<ServiceBell>();
+            SetRef(bell, "_interactionAnchor", interact.transform);
+            SetRef(bell, "_dome", dome.transform);
+            SetRef(bell, "_domeRenderer", dome.GetComponent<Renderer>());
+
+            var prefab = SavePrefab(root, "Stall_ServiceBell");
+            return new GameCatalog.ElementEntry
+            {
+                type = LevelElementType.ServiceBell,
                 prefab = prefab,
             };
         }

@@ -8,18 +8,26 @@ using UnityEngine.InputSystem;
 namespace AlpacasOnFire.Stall
 {
     /// <summary>
-    /// 每個玩家的擺攤狀態：目前正在放置哪一台機台、預覽轉了幾度。
+    /// 每個玩家的擺攤狀態：目前手上拿著哪一台裝備、預覽的朝向、以及它原本在哪一格。
     /// 掛在玩家 prefab 上（由 PlaceholderAssetBuilder 加上去），不修改 PlayerController。
     ///
     /// 分工：
-    ///  - [Networked] 的待放置類型與角度：所有人一致，狀態權威據此執行放置
+    ///  - [Networked] 的待放置類型／朝向／原格：所有人一致，狀態權威據此執行放置
     ///  - 幽靈模型與滾輪／Q 的讀取：只有輸入權那一端做，走 RPC 回報
-    ///  - 真正的放置座標：在 StateAuthority 上用 InteractionContext 重算，不信任用戶端傳來的座標
+    ///  - 真正的目標格：在 StateAuthority 上用 InteractionContext 重算，不採信用戶端傳來的座標
+    ///
+    /// 所有座標都是整數格子，所以本機預覽算出來的格子與權威端算出來的一定是同一格。
     /// </summary>
     public class PlayerStallAgent : NetworkBehaviour
     {
         [Networked] public int PendingTypeRaw { get; set; }
-        [Networked] public float PendingYaw { get; set; }
+        [Networked] public int PendingFacing { get; set; }
+
+        /// <summary>拿起來之前它在哪一格。Q 取消時要放回這裡。</summary>
+        [Networked] public NetworkBool HasOrigin { get; set; }
+        [Networked] public int OriginCellX { get; set; }
+        [Networked] public int OriginCellZ { get; set; }
+        [Networked] public int OriginFacing { get; set; }
 
         public bool HasPending => PendingTypeRaw != 0;
         public LevelElementType PendingType => (LevelElementType)PendingTypeRaw;
@@ -47,45 +55,98 @@ namespace AlpacasOnFire.Stall
 
         // ---------------- 放置流程 ----------------
 
-        /// <summary>進入放置預覽。只在 StateAuthority 呼叫。</summary>
-        public void BeginPlacement(LevelElementType type, float yaw = 0f)
+        /// <summary>
+        /// 進入放置預覽。originCell 是它被拿起來之前的格子（Q 取消時放回去）。
+        /// 只在 StateAuthority 呼叫。
+        /// </summary>
+        public void BeginPlacement(LevelElementType type, int facing, int originCellX, int originCellZ)
         {
             if (!HasStateAuthority) return;
+
             PendingTypeRaw = (int)type;
-            PendingYaw = yaw;
+            PendingFacing = StallGrid.NormalizeFacing(facing);
+
+            HasOrigin = true;
+            OriginCellX = originCellX;
+            OriginCellZ = originCellZ;
+            OriginFacing = PendingFacing;
         }
 
-        /// <summary>取消放置預覽。只在 StateAuthority 呼叫。</summary>
-        public void CancelPlacement()
+        private void ClearPending()
         {
             if (!HasStateAuthority) return;
             PendingTypeRaw = 0;
-            PendingYaw = 0f;
+            PendingFacing = 0;
+            HasOrigin = false;
         }
 
         /// <summary>
-        /// 算出目前預覽的落點。**本機幽靈與狀態權威的實際放置都呼叫這一支**，
-        /// 輸入是同一組（頭部位置、瞄準方向、襯布中心），所以兩邊結果一致。
+        /// Q 取消：裝備回到原本的格子。
+        /// 原格如果同時被別的裝備佔走了（多人同時搬），就找一個空格塞回去 ——
+        /// 絕對不能讓裝備憑空消失。
         /// </summary>
-        public bool TryResolvePoint(Vector3 origin, Vector3 direction,
-                                    out Vector3 rawPoint, out Vector3 snapped, out PlacementResult result)
+        public void CancelPlacement()
         {
-            rawPoint = default;
-            snapped = default;
+            if (!HasStateAuthority) return;
+            if (!HasPending) return;
+
+            var stall = Stall;
+            var type = PendingType;
+
+            if (stall != null && HasOrigin && stall.MatDeployed)
+            {
+                if (!stall.TryPlaceDevice(type, OriginCellX, OriginCellZ, OriginFacing, out _))
+                {
+                    StallGrid.RotatedFootprint(StallCatalog.Footprint(type), OriginFacing,
+                                               out int w, out int d);
+                    if (stall.BuildOccupancy().TryFindFree(w, d, out int cx, out int cz))
+                    {
+                        stall.TryPlaceDevice(type, cx, cz, OriginFacing, out _);
+                        Debug.LogWarning($"[擺攤] 取消放置時原格 ({OriginCellX},{OriginCellZ}) 已被佔用，" +
+                                         $"{type} 改放到 ({cx},{cz})。");
+                    }
+                    else
+                    {
+                        Debug.LogError($"[擺攤] 取消放置時找不到任何空格可以放回 {type}。");
+                    }
+                }
+            }
+
+            ClearPending();
+        }
+
+        /// <summary>
+        /// 算出目前準心指向哪一格。**本機幽靈與狀態權威的實際放置都呼叫這一支**。
+        /// 回傳的格子一律被夾在襯布範圍內（幽靈才有東西可顯示），
+        /// 是否合法看 result。
+        /// </summary>
+        public bool TryResolveCell(Vector3 origin, Vector3 direction,
+                                   out int cellX, out int cellZ, out PlacementResult result)
+        {
+            cellX = 0;
+            cellZ = 0;
             result = PlacementResult.NothingPending;
 
             var stall = Stall;
             if (stall == null || !HasPending) return false;
             if (!stall.IsArrangeMode) { result = PlacementResult.NotDeploying; return false; }
 
-            if (!StallGeometry.ProjectAim(origin, direction, stall.MatCenter, out rawPoint))
+            if (!StallGeometry.ProjectAim(origin, direction, stall.MatCenter, out var point))
             {
                 result = PlacementResult.OutsideMat;
                 return false;
             }
 
-            result = stall.ValidatePlacement(rawPoint, null, out snapped);
-            if (result != PlacementResult.Ok) snapped = rawPoint;
+            bool inside = StallGrid.WorldToCell(point, stall.MatCenter, stall.MatYaw, out cellX, out cellZ);
+            StallGrid.Clamp(ref cellX, ref cellZ);
+
+            if (!inside)
+            {
+                result = PlacementResult.OutsideMat;
+                return false;
+            }
+
+            result = stall.ValidateCell(PendingType, cellX, cellZ, PendingFacing);
             return result == PlacementResult.Ok;
         }
 
@@ -97,52 +158,43 @@ namespace AlpacasOnFire.Stall
             var stall = Stall;
             if (stall == null) return;
 
-            TryResolvePoint(ctx.Origin, ctx.Direction, out _, out _, out var result);
-            if (result != PlacementResult.Ok)
+            if (!TryResolveCell(ctx.Origin, ctx.Direction, out int cx, out int cz, out var result))
             {
                 RPC_PlacementRejected(StallGeometry.Describe(result));
                 GameAudio.PlayAt(SfxId.PlaceRejected, ctx.Origin);
                 return;
             }
 
-            StallGeometry.ProjectAim(ctx.Origin, ctx.Direction, stall.MatCenter, out var point);
-            if (!stall.TryPlaceDevice(PendingType, point, PendingYaw, out var placeResult))
+            if (!stall.TryPlaceDevice(PendingType, cx, cz, PendingFacing, out var placeResult))
             {
                 RPC_PlacementRejected(StallGeometry.Describe(placeResult));
                 return;
             }
 
-            CancelPlacement();
+            ClearPending();
         }
 
         public string BuildPrompt(in InteractionContext ctx)
         {
             if (!HasPending) return null;
 
-            TryResolvePoint(ctx.Origin, ctx.Direction, out _, out _, out var result);
+            TryResolveCell(ctx.Origin, ctx.Direction, out _, out _, out var result);
+
             string name = StallCatalog.DisplayName(PendingType);
+            string facing = $"朝{StallGrid.FacingName(PendingFacing)}（{StallCatalog.FacingMeaning(PendingType)}）";
 
             return result == PlacementResult.Ok
-                ? $"[Space] 放下{name}　[滾輪] 旋轉　[Q] 取消"
-                : $"{StallGeometry.Describe(result)}　[滾輪] 旋轉　[Q] 取消";
+                ? $"[Space] 放下{name}　{facing}　[滾輪] 轉 90°　[Q] 取消"
+                : $"{StallGeometry.Describe(result)}　[滾輪] 轉 90°　[Q] 取消";
         }
 
         // ---------------- RPC（用戶端 -> 狀態權威）----------------
 
         [Rpc(RpcSources.InputAuthority, RpcTargets.StateAuthority)]
-        public void RPC_RequestPlacement(int typeRaw)
-        {
-            var stall = Stall;
-            if (stall == null || !stall.IsArrangeMode) return;
-            if (typeRaw == 0) return;
-            BeginPlacement((LevelElementType)typeRaw, transform.eulerAngles.y);
-        }
-
-        [Rpc(RpcSources.InputAuthority, RpcTargets.StateAuthority)]
         public void RPC_RotatePending(int steps)
         {
             if (!HasPending) return;
-            PendingYaw = Mathf.Repeat(PendingYaw + steps * GameTuning.StallRotationStep, 360f);
+            PendingFacing = StallGrid.NormalizeFacing(PendingFacing + steps);
         }
 
         [Rpc(RpcSources.InputAuthority, RpcTargets.StateAuthority)]
@@ -206,8 +258,15 @@ namespace AlpacasOnFire.Stall
 
                 var origin = _player.HeadAnchor.position;
                 var dir = _player.AimDirection;
-                bool ok = TryResolvePoint(origin, dir, out var raw, out var snapped, out _);
-                _ghost.Apply(PendingType, ok ? snapped : raw, PendingYaw, ok);
+                bool ok = TryResolveCell(origin, dir, out int cx, out int cz, out _);
+
+                StallGrid.RotatedFootprint(StallCatalog.Footprint(PendingType), PendingFacing,
+                                           out int w, out int d);
+
+                _ghost.Apply(PendingType,
+                             StallGrid.CellToWorld(cx, cz, stall.MatCenter, stall.MatYaw),
+                             StallGrid.FacingToRotation(PendingFacing, stall.MatYaw),
+                             w, d, ok);
             }
             else if (_ghost != null)
             {

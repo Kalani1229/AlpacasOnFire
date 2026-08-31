@@ -421,6 +421,7 @@ MonoBehaviour:
   _FlightElapsed: 0
   _lidVisual: {fileID: 5572891928213490189}
   _stateLight: {fileID: 7007159121000288658}
+  _LayoutCount: 0
 --- !u!1 &3819268664479385252
 GameObject:
   m_ObjectHideFlags: 0

@@ -64,10 +64,19 @@ namespace AlpacasOnFire.Core
         Wall = 16,
         OrderBoardAnchor = 17,
 
-        // ---- 擺攤系統（本批新增，一律往後加，維持存檔相容）----
+        // ---- 擺攤系統（一律往後加，維持存檔相容）----
         DeliveryCounter = 18,  // 交貨窗口（顧客會排在窗口外側）
         Conveyor = 19,         // 輸送帶
         SuitcaseSpawn = 20,    // 手提箱的初始生成點（測試場景用）
+
+        // 工具架：讓剃毛器與噴槍也能在網格上佔一格、也能被記進佈局。
+        // 兩個類型共用同一個 prefab，由 DeviceType 決定架上放哪一種工具。
+        ToolRackShears = 21,
+        ToolRackSprayGun = 22,
+
+        // 開張鈴：襯布邊上的固定設施，不進網格、不佔格子、不能搬動。
+        // 敲下去就開張，然後鈴鐺自己縮起來消失；下一場要開張時會再出現。
+        ServiceBell = 23,
     }
 
     /// <summary>
@@ -86,15 +95,35 @@ namespace AlpacasOnFire.Core
         Settling  = 3, // 結算中：跳出本場結算
     }
 
-    /// <summary>放置驗證的結果。失敗原因會直接顯示在幽靈模型旁邊。</summary>
+    /// <summary>
+    /// 驗證結果。分成兩組用途：
+    ///  - 開箱時（整塊襯布）：GroundTooSteep / NoGround / Obstructed
+    ///  - 放裝備時（單一格子）：OutsideMat / CellOccupied
+    /// 失敗原因會直接顯示在幽靈模型旁邊。
+    /// </summary>
     public enum PlacementResult : byte
     {
         Ok = 0,
         OutsideMat = 1,      // 超出襯布範圍
-        Overlapping = 2,     // 和其他機台太近
+        CellOccupied = 2,    // 這格已經被其他裝備佔住
         GroundTooSteep = 3,  // 地面不夠平
         NoGround = 4,        // 下方沒有地面
         NotDeploying = 5,    // 目前不是佈置模式
-        NothingPending = 6,  // 沒有待放置的機台
+        NothingPending = 6,  // 沒有待放置的裝備
+        Obstructed = 7,      // 襯布範圍內有障礙物，攤不開
+    }
+
+    /// <summary>
+    /// 裝備在網格上的朝向。只有四向，沒有自由角度。
+    /// 朝向有實際功能：+Z 是「正面」——
+    ///   輸送帶往正面送、交貨窗口的窗口朝正面（顧客站那邊）、
+    ///   機台的操作面在背面（玩家站 −Z 那一側操作）。
+    /// </summary>
+    public enum StallFacing : byte
+    {
+        North = 0, // +Z
+        East  = 1, // +X
+        South = 2, // −Z
+        West  = 3, // −X
     }
 }

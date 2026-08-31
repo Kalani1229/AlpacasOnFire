@@ -1,252 +1,288 @@
-# 擺攤系統 — 施工結果
+# 擺攤系統 — 網格版（PlateUp! 式擺放）
 
-本批把「固定工坊 + 三分鐘關卡」改成「機台裝在手提箱裡，可以在任何地方架起攤位」。
-顧客 NPC 是下一批的事，本批不做，但架構留得住（見文末）。
-
----
-
-## 一、你要先做的兩件事（我沒辦法代勞）
-
-### 1. 重建佔位資產
-
-選單 `羊駝很忙 / 1. 建置佔位資產（材質 + Prefab + Catalog）`
-
-這一步會新增手提箱、交貨窗口、輸送帶的 prefab，並且幫縫紉機／果汁機／人偶補上
-`DeployHandle` 子物件。**沒有跑這步，手提箱裡會是空的。**
-
-### 2. 重建 Fusion prefab 表
-
-選單 `Tools > Fusion > Rebuild Prefab Table`
-
-（或 `Tools > Fusion > Network Project Config` 開啟設定，Inspector 裡按 `Rebuild Prefab Table`，
-再按下方的 `Apply`。兩個入口做的是同一件事。）
-
-機台現在是**執行期用 `Runner.Spawn()` 生出來的**，沒有登錄在 prefab 表裡的話，
-放置會失敗並在 Console 印出這件事。這是本批唯一一個新增的必要手動步驟。
-
-**順序很重要**：你裝的 Fusion 2.0.12 是靠 AssetDatabase label 標記 prefab 的
-（`Fusion.Unity.Editor.cs` 的 `RebuildPrefabTable()`），所以一定要**先**跑完上面的
-「1. 建置佔位資產」讓新 prefab 存在，再 Rebuild —— 反過來的話會掃不到新東西。
-
-### 3. 建置測試場景
-
-選單 `羊駝很忙 / 擺攤 / 1. 建置擺攤測試場景`
-
-驗證用：`羊駝很忙 / 擺攤 / 3. 檢查擺攤設置（診斷用）`
-重跑用：`羊駝很忙 / 擺攤 / 2. 一鍵重置擺攤測試場景`
+手提箱、襯布、DeployableDevice、佈置／營業模式、交貨窗口、輸送帶、狀態機、
+計時與結算、資本額 —— 整體結構都保留。這一版只換掉「擺放方式」。
 
 ---
 
-## 二、怎麼玩（一輪完整流程）
+## 一、你要先做的三件事
 
-1. 出生點旁邊有一個手提箱，走過去按 **Space** 撿起來
-2. 找一塊空地，面向前方按 **Space** → 襯布攤開成 8×8，箱子落在正中央
-3. 對著箱子按 **Space** → 攤位選單
-4. 選一台機台 → 幽靈模型跟著準心投影在襯布上
-   - **滾輪** 旋轉 90 度
-   - **Space** 放置
-   - **Q** 取消
-5. 對著已放好的機台按 **Space** → 拿起來重新擺放
-6. 擺好之後回到箱子選單，房主按 **開張** → 開始計時 180 秒，切換成營業模式
-7. 營業中 Space 恢復成正常操作機台；做好衣服拿到**交貨窗口**按 Space 出貨
-8. 時間到跳出結算：本場營業額、成交筆數、錯過的訂單數，累加到資本額
-9. 按繼續 → 回到探索狀態，攤位還在地上，可以繼續搬機台或從選單**收攤**換地方
+順序不能換：
 
-開張的前提是襯布上至少有 **一台交貨窗口 + 一台縫紉機**，否則按鈕會是灰的並說明原因。
+1. 選單 `羊駝很忙 / 1. 建置佔位資產` —— 產生工具架等新 prefab
+2. 選單 `Tools > Fusion > Rebuild Prefab Table`
+3. 選單 `羊駝很忙 / 擺攤 / 1. 建置擺攤測試場景`
+
+驗證：`羊駝很忙 / 擺攤 / 3. 檢查擺攤設置（診斷用）`
+現在除了檢查 prefab 完整性，還會檢查**襯布放不放得下全部裝備**、
+以及**預設佈局本身有沒有格子衝突**。
 
 ---
 
-## 三、我設定的實際數值（全部在 `Core/GameTuning.cs`）
+## 二、怎麼玩（改動後的流程）
 
-### 手提箱與襯布
+1. 撿起手提箱 → 找空地按 **Space**
+2. 襯布展開成 6×6 網格，**七台裝備一次全部彈出**到各自的格子上（有彈出動畫與音效）
+   — 沒有選單，不用一台一台選
+3. 面向任一裝備按 **Space** → 拿起來，變成跟著準心投影在網格上的幽靈
+   - **滾輪** 轉 90°
+   - **Space** 放進目前高亮的格子
+   - **Q** 取消，裝備回到原本那一格
+4. 擺好後走到襯布邊上的 **開張鈴**，按 Space 敲下去（房主限定）
+   — 鈴鐺被敲扁一下然後縮起來消失，下一場要開張時會再出現
+5. 營業 180 秒 → 結算 → 繼續
+6. 對著手提箱按 **Space** → **收攤**（先把目前佈局寫回箱子，再收走所有裝備）
+7. 換個地方重新開箱 → **裝備彈回你上次調好的位置**
+
+---
+
+## 三、我設定的實際數值
+
+### 網格（本次新增／變更）
 
 | 項目 | 常數 | 值 |
 |---|---|---|
-| 襯布尺寸 | `StallMatSize` | **8 × 8 公尺** |
-| 襯布近邊離玩家 | `StallMatDeployDistance` | 1.2 公尺 |
-| 襯布貼地抬升 | `StallMatHeightOffset` | 0.02 公尺 |
+| **網格單格邊長** | `StallCellSize` | **1.5 公尺** |
+| **網格格數** | `StallGridCells` | **6 × 6** |
+| **襯布邊長** | `StallMatSize` | **9.0 公尺**（= 6 × 1.5，自動推算） |
+| 網格線寬度 | `StallGridLineWidth` | 0.05 公尺 |
+| 手提箱擺在襯布背緣外 | `StallSuitcaseBackOffset` | 0.9 公尺（不佔格子） |
+| 開張鈴在背緣往右偏 | `StallBellSideOffset` | 1.8 公尺（不佔格子） |
+| 開張鈴檯面高度 | `StallBellHeight` | 1.0 公尺 |
+| 敲完縮起來的時間 | `StallBellShrinkDuration` | 0.45 秒 |
+
+> `StallMatSize` 現在是 `StallGridCells * StallCellSize` 的常數運算式 ——
+> 改格數或格子大小，襯布尺寸會自動跟著變，不會忘記同步。
+
+### 開箱時的地面／淨空檢測（**只在開箱做一次**）
+
+| 項目 | 常數 | 值 |
+|---|---|---|
 | 四角檢測往內縮 | `StallDeployProbeInset` | 0.35 公尺 |
-| 平坦度射線起點高 | `StallGroundProbeHeight` | 3.0 公尺 |
-| 平坦度射線長度 | `StallGroundProbeLength` | 6.0 公尺 |
-| **地面平坦度容許角** | `StallMaxGroundAngle` | **12 度** |
-| 四角高低差容許 | `StallMaxGroundStep` | 0.45 公尺 |
+| 射線起點高度 | `StallGroundProbeHeight` | 3.0 公尺 |
+| 射線長度 | `StallGroundProbeLength` | 6.0 公尺 |
+| **地面容許坡度** | `StallMaxGroundAngle` | **12 度** |
+| **四角高低差容許** | `StallMaxGroundStep` | **0.45 公尺** |
+| **上方淨空高度** | `StallClearanceHeight` | **2.2 公尺** |
+| 淨空檢測往內縮 | `StallClearanceInset` | 0.25 公尺 |
 
-### 機台放置
+### 裝備放置
 
 | 項目 | 常數 | 值 |
 |---|---|---|
-| **機台之間最小間距** | `StallMinDeviceSpacing` | **1.8 公尺**（中心距離） |
-| 機台離襯布邊緣最小距離 | `StallDeviceEdgeMargin` | 0.7 公尺 |
 | 準心投影最遠距離 | `StallPlaceMaxDistance` | 12 公尺 |
-| 滾輪一格轉幾度 | `StallRotationStep` | 90 度 |
-| **擺放／收回耗時** | `StallDeployDuration` | **0 秒（瞬間，先不做長按）** |
-| 收攤清除範圍外擴 | `StallCollectRadius` | 0.6 公尺 |
+| 擺放／收回耗時 | `StallDeployDuration` | 0 秒（瞬間） |
+| 收攤清除範圍外擴 | `StallCollectRadius` | 1.2 公尺 |
 
-### 輸送帶
-
-| 項目 | 常數 | 值 |
-|---|---|---|
-| **輸送帶速度** | `ConveyorSpeed` | **1.6 m/s** |
-| 帶面長度 | `ConveyorLength` | 3.0 公尺 |
-| 帶面寬度 | `ConveyorWidth` | 0.9 公尺 |
-| 帶面高度 | `ConveyorHeight` | 0.55 公尺 |
-| 捕捉高度 | `ConveyorCaptureHeight` | 0.75 公尺 |
-
-### 交貨窗口
+### 彈出動畫（純本機視覺，不同步）
 
 | 項目 | 常數 | 值 |
 |---|---|---|
-| 檯面高度 | `DeliveryCounterHeight` | 1.3 公尺 |
-| 排隊錨點離窗口 | `CustomerQueueDistance` | 1.6 公尺（下一批 NPC 用） |
+| 單台彈出時間 | `StallPopDuration` | 0.35 秒 |
+| 每台錯開 | `StallPopStagger` | 0.06 秒 |
+| 拋起高度 | `StallPopHeight` | 0.9 公尺 |
+| 縮放回彈幅度 | `StallPopOvershoot` | 1.12 |
 
-### 計時與經濟
+> 七台裝備 × 0.06 秒錯開 + 0.35 秒動畫 ≈ **0.75 秒**跑完，不會拖節奏。
 
-| 項目 | 常數 | 值 |
-|---|---|---|
-| **一場營業時長** | `StallDurationSeconds` | **180 秒** |
-| 資本額起始值 | `StallStartingCapital` | 0 |
+### 輸送帶（尺寸改小以放進一格）
 
-**既有數值一項都沒有改動。** 縫紉機 6 秒、果汁機 4 秒、噴槍容量 100、超時扣 40、
-錯誤出貨扣 25、訂單 75 秒倒數等等全部維持原樣。
+| 項目 | 常數 | 值 | 變更 |
+|---|---|---|---|
+| 速度 | `ConveyorSpeed` | 1.6 m/s | 不變 |
+| **帶面長度** | `ConveyorLength` | **1.35 公尺** | 從 3.0 縮短 |
+| **帶面寬度** | `ConveyorWidth` | **0.85 公尺** | 從 0.9 微調 |
+| 帶面高度 | `ConveyorHeight` | 0.55 公尺 | 不變 |
+| 捕捉高度 | `ConveyorCaptureHeight` | 0.75 公尺 | 不變 |
 
-### 互動優先權（新的全域排序）
+> 原本 3.0 公尺的輸送帶塞不進 1.5 公尺的格子。之後把輸送帶的佔地改成 1×2，
+> 就可以把長度拉回 2.8 左右 —— `StallCatalog.Footprint()` 改一個值就好。
 
-| 優先權 | 對象 |
-|---|---|
-| 0 | 地面雜物 |
-| 1 | 機台（縫紉機／果汁機／人偶／交貨窗口） |
-| 2 | 隊友 |
-| **4** | **DeployableDevice（佈置模式拿起機台）** |
-| **5** | **手提箱** |
-| **99** | **PlacementTarget（放置預覽期間的 Space 捕捉器）** |
+### 沒有變動的數值
+
+計時 180 秒、資本額起始 0、交貨窗口高度 1.3、排隊錨點距離 1.6、
+以及 Phase 1 的全部數值（機台處理秒數、噴槍容量、扣款金額、攝影機參數）都沒有動。
+
+### 移除的數值（改用格子後不再需要）
+
+- `StallMinDeviceSpacing`（機台間距）→ 由格子佔用表取代
+- `StallDeviceEdgeMargin`（離邊緣距離）→ 由格子界限取代
+- `StallRotationStep`（旋轉角度）→ 由 `StallFacing` 四向列舉取代
+
+### 預設佈局（第一次開箱用）
+
+```
+z=5              [交貨窗口]              ← 顧客站襯布外
+z=4              [輸送帶↑]
+z=3   [果汁機]   [縫紉機]
+z=2   [噴槍架]   [人偶]
+z=1   [剃毛器架]
+      x=4        x=2/x=3
+```
+
+剃毛 → 縫紉機 → 輸送帶 → 交貨窗口是一條直線；
+染色支線（果汁機 → 噴槍架 → 人偶）掛在旁邊不擋主線。
 
 ---
 
-## 四、改動了哪些既有檔案
+## 四、改動了哪些檔案
 
-### 只有「新增」、沒有修改既有行為
+### 新增（4 支 runtime）
+
+| 檔案 | 作用 |
+|---|---|
+| `Scripts/Stall/StallGrid.cs` | 格子座標換算、四向朝向、佔地旋轉、**格子佔用表**（36 格塞進一個 ulong 的位元表） |
+| `Scripts/Stall/StallSlotRecord.cs` | 佈局的最小單位：裝備種類 + 格子座標 + 朝向，全整數的 `INetworkStruct` |
+| `Scripts/Stall/ToolRack.cs` | 工具架 —— 讓剃毛器與噴槍也能佔一格、被記進佈局 |
+| `Scripts/Stall/ServiceBell.cs` | 開張鈴 —— 敲了就開張，然後自己縮起來消失 |
+（Editor 端沒有新檔案，只在既有的 `StallAssetBuilder.cs` 裡加了兩個建置函式）
+
+### 大幅改寫（7 支）
 
 | 檔案 | 改了什麼 |
 |---|---|
-| `Core/GameEnums.cs` | 新增 `ItemKind.Suitcase = 10`；`LevelElementType` 往後加 `DeliveryCounter=18 / Conveyor=19 / SuitcaseSpawn=20`；新增 `StallState`、`PlacementResult` 兩個列舉。既有項目的數值沒有動，存檔相容。 |
-| `Core/GameTuning.cs` | 檔案末尾加一整個「擺攤系統」區塊。**既有數值一個字都沒改。** |
-| `Core/GameAudio.cs` | `SfxId` 往後加 7 個事件 + 對應的合成音配方。 |
-| `Orders/OrderBoard.cs` | 加兩個 public 方法 `ClearAllOrders()`、`ResetSpawnSchedule()`。既有邏輯沒動。 |
-| `Editor/PlaceholderAssetBuilder.cs` | 建置流程加一行 `Step("Stall", ...)`。 |
+| `Scripts/Stall/StallManager.cs` | 開箱改成 `PopOutAllDevices()` 一次生成全部；`ValidatePlacement(Vector3…)` → `ValidateCell(type, cx, cz, facing)`；新增 `BuildOccupancy()`；收攤先 `SaveLayoutTo(suitcase)`；地面檢測從放置移到開箱 |
+| `Scripts/Stall/DeployableDevice.cs` | 位置改成 `[Networked] CellX / CellZ / FacingRaw`，世界座標由 `ApplyGridTransform()` 推算；加入彈出動畫；`MarkDeployed()` 簽章改成吃格子座標 |
+| `Scripts/Stall/SuitcaseItem.cs` | **新增 `[Networked] NetworkArray<StallSlotRecord> Layout` 佈局記憶**；Space 從「開選單」改成「收攤」 |
+| `Scripts/Stall/PlayerStallAgent.cs` | 待放置狀態從 `PendingYaw`（float）改成 `PendingFacing`（0–3 整數）+ 原格記錄；`TryResolveCell()` 回傳整數格 |
+| `Scripts/Stall/PlacementGhost.cs` | 加上**目標格高亮**方塊；`Apply()` 改吃格中心 + 佔地格數 |
+| `Scripts/Stall/StallMatVisual.cs` | 加上**網格線**（佈置模式顯示、營業模式隱藏） |
+| `Scripts/Stall/StallHud.cs` | 移除所有可點按鈕，只留「還缺什麼才能開張」的文字提示 |
 
-### 有修改既有行為（都是為了讓擺攤模式能接上，且都有開關）
+### 小幅修改（6 支）
 
-| 檔案 | 改了什麼 | 對舊場景的影響 |
-|---|---|---|
-| `Orders/LevelDirector.cs` | 加 `_stallMode` 開關與 `BeginStallRound()`。勾選時：`Spawned()` 不自動開始計時；時間到不做星級結算、不設 `Finished`。 | **無** —— 開關預設 `false`，舊場景行為完全不變。 |
-| `UI/ResultsScreen.cs` | `Show()` 開頭加一個 early return：擺攤模式不顯示星級結算。 | **無** —— 只在 `StallMode == true` 時生效，星級結算的程式碼整段保留。 |
-| `UI/PauseMenu.cs` | Esc 的判斷多兩行，讓擺攤面板優先關自己。 | **無** —— 只是多兩個 null-safe 判斷。 |
+| 檔案 | 改了什麼 |
+|---|---|
+| `Scripts/Core/GameEnums.cs` | 新增 `ToolRackShears=21`、`ToolRackSprayGun=22`、`ServiceBell=23`；`PlacementResult` 的 `Overlapping` 改名 `CellOccupied`、新增 `Obstructed`；新增 `StallFacing` 列舉 |
+| `Scripts/Core/GameTuning.cs` | 網格與彈出動畫區塊；移除三個不再使用的常數；輸送帶尺寸縮小 |
+| `Scripts/Core/GameAudio.cs` | 新增 `SfxId.StallPopOut`、`SfxId.BellRing` 與其合成音配方 |
+| `Scripts/Stall/StallCatalog.cs` | `Devices` 改用工具架；新增 `Footprint()`、`DefaultLayout`、`MatFitsAllDevices()`、`FacingMeaning()` |
+| `Scripts/Stall/StallGeometry.cs` | 新增 `CheckDeployArea()`（地面 + 淨空一起檢查）與 `CheckClearance()`；移除 `InsideMat()`；`CheckGround()` 多回傳 detail 字串供記錄 |
+| `Scripts/Stall/StallUIRoot.cs` | 不再建立 `SuitcasePanel` |
+| `Scripts/UI/PauseMenu.cs` | 移除對 `SuitcasePanel` 的 Esc 判斷 |
+| `Editor/StallSceneBuilder.cs` | `ValidateStallSetup()` 改成檢查工具架、襯布容量、預設佈局衝突 |
+| `Editor/StallAssetBuilder.cs` | 新增工具架與開張鈴的 prefab 建置 |
 
-### 絕對沒有碰的檔案（你點名要保護的）
+### 刪除（1 支 + 其 meta）
+
+| 檔案 | 理由 |
+|---|---|
+| `Scripts/Stall/SuitcasePanel.cs` | 裝備選單整個不需要了。開張改成敲鈴、收攤改成對手提箱按 Space，沒有留任何死碼 |
+| `Scripts/Stall/SuitcasePanel.cs.meta` | 一併刪除，避免 Unity 留下孤兒 meta |
+
+### 修 bug 而動到的既有檔案（1 支）
+
+| 檔案 | 改了什麼 |
+|---|---|
+| `Scripts/Player/PlayerInteractor.cs` | `Collect()` 加一行守衛，跳過還沒 `Spawned()` 或已 `Despawned` 的 `NetworkBehaviour` |
+
+**為什麼一定要動它**：Fusion 的生成是延遲的 —— `Runner.Spawn()` 之後 GameObject 與碰撞體先存在，
+`Spawned()` 要等到模擬迴圈才跑。在那個空窗期讀 `[Networked]` 屬性會直接丟
+`InvalidOperationException`，而 `GameHud.Update()` 每一幀都呼叫
+`FindTarget() -> CanInteract()`，一定會撞上。
+
+這個洞在 Phase 1 一直存在，只是那時候機台是**場景物件**（載入場景時就 Spawn 完），
+沒有空窗期所以從來沒發作。機台改成執行期生成之後才暴露出來 ——
+錯誤堆疊裡同時有 `MachineBase.Processing`（既有程式碼）與 `ServiceBell.Rung`（新程式碼），
+就是這個原因。
+
+修在 `PlayerInteractor.Collect()` 一處，所有 `IInteractable` 實作都不必各自寫防呆，
+以後新增的互動類型也自動受保護。若改成逐一在 `SewingMachine` / `Juicer` / `Mannequin` /
+`DeliveryCounter` / `ToolRack` / `CarriableItem` … 裡加守衛，會散落十幾處而且新增類型時必漏。
+
+同時也把三個 `Runner.TryFindObject()` 的結果補上 `IsValid` 檢查
+（`StallManager.Bell`、`StallManager.ActiveSuitcase`、`ToolRack.ToolAlive`），
+避免讀到「已 Despawn 但還沒清掉」的物件。
+
+### 完全沒有碰的檔案
 
 `GameLauncher.cs`、`NetInput.cs`、`SpawnPointRegistry.cs`、
 `PlayerController.cs`、`PlayerCameraRig.cs`、`LocalInputProvider.cs`、
-`PlayerCarry.cs`、`PlayerInteractor.cs`、`CarriableItem.cs`、
+`PlayerCarry.cs`、`CarriableItem.cs`、
 `IInteractable.cs`、`ItemInterfaces.cs`、
 `SewingMachine.cs`、`Juicer.cs`、`Mannequin.cs`、`SprayGunTool.cs`、`ShearsTool.cs`、
-`Mailbox.cs`、`BoxItem.cs`、`GarmentItem.cs`、`AccessoryItem.cs`、`MachineBase.cs`、
+`MachineBase.cs`、`Mailbox.cs`、`BoxItem.cs`、`GarmentItem.cs`、`AccessoryItem.cs`、
 `DyeSourceNode.cs`、`BoxDispenser.cs`、`AccessoryDispenser.cs`、`RecyclingMachine.cs`、
-`LevelDefinition.cs`、`LevelElementRecord.cs`、`LevelBuilder.cs`、`LevelEditorWindow.cs`、
-`LevelSceneBuilder.cs`、`GameHud.cs`、`GameUIRoot.cs`、`PatternSelectPanel.cs`、`UIFactory.cs`
+`Conveyor.cs`、`DeliveryCounter.cs`、`PlacementTarget.cs`、`StallResultsPanel.cs`、`StallUIRoot.cs`、
+`LevelDefinition.cs`、`LevelBuilder.cs`、`LevelEditorWindow.cs`、`LevelSceneBuilder.cs`、
+`GameHud.cs`、`GameUIRoot.cs`、`PatternSelectPanel.cs`、`UIFactory.cs`、
+`LevelDirector.cs`、`OrderBoard.cs`、`ResultsScreen.cs`
 
-角色移動仍然走 `NetworkCharacterController`，本批沒有任何地方直接寫 `transform.position`
-去搬玩家。
-
-### 新增的檔案
-
-```
-Scripts/Stall/
-  StallGeometry.cs      幾何與地面檢測（純函式，本機預覽與權威放置共用同一套）
-  StallCatalog.cs       手提箱裡有什麼、怎麼解析成 prefab
-  StallManager.cs       狀態機 / 襯布 / 放置驗證 / 開張 / 結算 / 資本額
-  StallMatVisual.cs     襯布視覺（本機，非網路物件）
-  SuitcaseItem.cs       手提箱（CarriableItem 子類）
-  DeployableDevice.cs   讓既有機台可擺放／可收回
-  PlayerStallAgent.cs   每個玩家的放置狀態 + 滾輪／Q
-  PlacementTarget.cs    放置預覽期間的 Space 捕捉器
-  PlacementGhost.cs     幽靈模型（本機視覺）
-  DeliveryCounter.cs    交貨窗口
-  Conveyor.cs           輸送帶
-  StallUIRoot.cs        擺攤 UI 的 Canvas
-  SuitcasePanel.cs      攤位選單（裝備 / 開張 / 收攤）
-  StallHud.cs           模式標籤 / 資本額 / 提示
-  StallResultsPanel.cs  本場結算
-
-Editor/
-  StallAssetBuilder.cs  手提箱／交貨窗口／輸送帶 prefab + DeployHandle
-  StallSceneBuilder.cs  擺攤測試場景 + 一鍵重置 + 診斷
-```
+角色移動仍然走 `NetworkCharacterController`，本批沒有任何地方直接寫 `transform.position` 搬玩家。
 
 ---
 
-## 五、幾個設計判斷，先講清楚免得你之後看到覺得奇怪
+## 五、幾個關鍵設計判斷
 
-### 1. 「Space 在兩種模式意義不同」是怎麼做到不改既有程式碼的
+### 1. 為什麼多了「工具架」
 
-Space 是由既有的 `PlayerInteractor` 分派給準心前方的 `IInteractable` 的，
-而它是照 `InteractionPriority` 挑最高的那個。所以我沒有加任何模式判斷，
-而是讓新元件用優先權去搶：
+剃毛器與噴槍是手持工具，本來沒辦法「站在格子上」。但網格佈局要成立，
+每一台裝備都必須佔一格、能被記進佈局、能用同一套方式重擺。
+所以給它們一個架子：**架子是 DeployableDevice**（進網格、能重擺、會被記住），
+**架上的工具仍是一般 CarriableItem**（照舊可以撿起、丟出、接住）。
 
-- 佈置模式：`DeployableDevice`（4）壓過機台本體（1）→ Space = 拿起機台
-- 營業模式：`DeployableDevice.CanInteract` 回 false → Space 落回機台本體 = 正常操作
-- 放置預覽中：`PlacementTarget`（99）壓過所有東西 → Space = 放下
+工具掉進地形縫隙整攤就廢了，所以架子留了一個保底：
+空手對著空架子按 Space 可以再拿一支。
 
-`DeployableDevice` 一定要掛在機台 prefab 的**子物件** `DeployHandle` 上，不能掛在根物件。
-因為 `PlayerInteractor` 是用 `GetComponentInParent<IInteractable>()` 收集候選人，
-同一個物件上有兩個 `IInteractable` 時只會拿到其中一個、順序還不保證。
-分成兩個子物件、各自有碰撞體，兩個都會進候選清單，才輪得到優先權決定。
+### 2. 位置為什麼一定兩端一致
 
-### 2. 手提箱拿在手上為什麼還選得到
+裝備身上**沒有 NetworkTransform**。同步的只有 `CellX / CellZ / FacingRaw` 三個整數，
+世界座標由 `StallGrid.CellToWorld()` 在每一端各自算。整數不會有浮點誤差，
+所以「兩端算出來的位置一定是同一個點」是結構上保證的，不是靠精度湊出來的。
 
-`CarriableItem.UpdateColliders()` 只關掉「非 trigger」的碰撞體。
-手提箱 prefab 上多掛了一顆 `HeldProbe` trigger 碰撞體，拿在手上時仍然有效，
-而 `PlayerInteractor` 的查詢是 `QueryTriggerInteraction.Collide` —— 所以「拿著箱子按 Space 開箱」
-不需要動 `PlayerCarry` 或新增按鍵。
+彈出動畫是純本機視覺（只改 `transform` 的暫時偏移與縮放），不佔任何頻寬。
 
-### 3. 幽靈模型的位置為什麼一定跟實際放置的位置一致
+### 3. 重疊判定為什麼不用碰撞體
 
-`StallGeometry` 全部是純函式，輸入只有頭部位置、瞄準方向、襯布中心，
-而這三個都是從 `[Networked]` 狀態推導的。本機預覽與狀態權威呼叫的是同一支函式，
-所以看到綠色就一定放得下去。用戶端傳來的座標**完全不採信**，權威端一律重算。
+碰撞體判定會受模型外框影響，而且兩端可能算出不同結果。
+改成 `StallGrid.Occupancy` —— 6×6 = 36 格剛好塞進一個 `ulong` 的位元表，
+`Check()` 是純位元運算，完全確定性，本機預覽與權威端呼叫的是同一支。
 
-### 4. 收攤會把襯布上的散裝物品一起收走
+### 4. 朝向是四向列舉，不是角度
 
-不只機台，襯布範圍內沒被拿在手上的物品（羊毛、半成品、染劑罐）也會一併消失。
-這是刻意的：收攤 = 整攤打包。拿在手上的東西不受影響。
+`StallFacing`：0=+Z(前)、1=+X(右)、2=−Z(後)、3=−X(左)。
+朝向有實際功能：**+Z 是正面** ——
+輸送帶往正面送、交貨窗口的窗口朝正面（顧客站那邊）、機台的操作面在背面。
+幽靈模型上那根白色的「鼻子」指的就是正面。
 
-### 5. 星級結算沒有刪，只是關掉
+### 5. 開張與收攤搬家了
 
-`ResultsScreen` 整支保留，只在 `LevelDirector.StallMode == true` 時不觸發。
-把 `[GameSystems]` 上 LevelDirector 的「擺攤模式」勾掉，星級結算立刻回來。
+選單刪掉之後這兩個動作需要新家：
+- **開張** → 走到襯布邊上敲**開張鈴**（世界物件，Space 互動，房主限定）
+- **收攤** → 對著手提箱按 Space（跟開箱對稱）
+
+**為什麼不是 HUD 按鈕**：這個專案的游標從頭到尾是鎖住的，而且
+`LocalInputProvider` 把 `LookEnabled` 直接綁在游標鎖上 ——
+解鎖游標的同時滑鼠視角與 WASD 會一起停掉。所以常駐的 HUD 按鈕在這套控制模型下
+根本點不到，可點的 UI 一律得是會解鎖游標的模態面板。做成世界物件就完全繞開這件事。
+
+**鈴鐺的生命週期**由 `StallManager.EnsureBell()` 每個 tick 維護：
+進佈置模式就生一顆、敲掉或收攤就沒了、一場營業結束回到佈置模式時再生一顆。
+它**沒有 DeployHandle** —— 是控制不是裝備，不進網格、不佔格子、搬不走。
+
+### 6. 診斷記錄分兩邊
+
+`BuildReport` 在 `Assets/AlpacasOnFire/Editor/` 底下，屬於 Editor 組件，
+**runtime 程式碼參照不到它**。所以：
+- Editor 端（資產建置、場景建置、設置檢查）→ 用 `BuildReport`，會寫進 `AlpacasOnFire_BuildReport.txt`
+- Runtime 端（開箱地面檢查結果、佈局讀寫、放置驗證失敗原因）→ 用 `Debug.Log`，進 Console
+
+兩邊都有記錄，只是落點不同。
 
 ---
 
-## 六、已知的粗糙處（不影響驗收，但你會遇到）
+## 六、已知的粗糙處
 
-1. **襯布只能有一組。** v1 假設全隊共用一個手提箱。多個手提箱同時開箱的行為沒有定義
-   （第二個會被 `MatDeployed` 擋掉，但不會有好的提示）。
+1. **襯布只能有一組。** 多個手提箱同時開箱沒有定義（第二個會被 `MatDeployed` 擋掉）。
 
-2. **放置預覽中如果準心掃過素材點／飾品點，Space 只會放機台，不會誤觸** —— 這個有處理。
-   但如果你在預覽中走到襯布外，`PlacementTarget` 仍然存在，只是驗證一律不通過並顯示原因。
+2. **佈局記在「那一個手提箱」身上。** 換一個手提箱就是一份新的空佈局。
+   目前場上只有一個箱子，所以不成問題。
 
-3. **輸送帶不會把東西送進機台的輸入口。** 規格書寫明 v1 不做，我沿用。
-   東西會被送到 `OutputAnchor` 然後掉在地上。
+3. **裝備間距固定 1.5 公尺，機台本體 1.2 公尺寬**，相鄰兩格之間只剩 0.3 公尺，
+   玩家（半徑 0.35）鑽不過去。這是刻意的 PlateUp 感，但如果你覺得太擠，
+   把 `StallCellSize` 調到 1.8 就會鬆很多。
 
-4. **結算畫面每個人各自關。** 任何一個人按繼續就會把整組狀態推回 Exploring，
-   其他人的結算畫面會停在畫面上直到自己也按繼續。多人時要不要改成等所有人，留給下一批決定。
+4. **輸送帶變短了**（1.35 公尺），視覺上比較像一小段滑道而不是輸送帶。
+   要改回長的就把佔地改成 1×2。
 
----
-
-## 七、給下一批（顧客 NPC）留的接口
-
-- `DeliveryCounter.CustomerQueueAnchor` —— 排隊位置，已經是空物件 + Gizmo
-- `DeliveryCounter.WindowForward` —— 窗口朝外的方向
-- `OrderBoard.TryDeliver(GarmentSpec)` —— 顧客成交時直接呼叫同一支，計分邏輯不用重寫
-- `StallManager.State` —— NPC 只在 `Open` 時該出現
-- `StallManager.RoundDeliveries` / `RoundMissed` —— 結算統計已經在累計，NPC 只要接上去
-- `LevelElementType` 已經預留往後加的空間（下一個可用值是 21）
+5. **結算畫面每個人各自關。** 任一人按繼續就會把狀態推回佈置模式。

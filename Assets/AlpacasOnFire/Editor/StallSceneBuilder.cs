@@ -90,16 +90,13 @@ namespace AlpacasOnFire.EditorTools
             bool hasSuitcase = catalog.items.Any(e => e.kind == ItemKind.Suitcase && e.prefab != null);
             if (!hasSuitcase) missing.Add("物品 Suitcase（手提箱）");
 
+            // 工具架上會生出工具，所以工具本身的 prefab 也必須在
+            foreach (var kind in new[] { ItemKind.Shears, ItemKind.SprayGun })
+                if (!catalog.items.Any(e => e.kind == kind && e.prefab != null))
+                    missing.Add($"工具 {kind}");
+
             foreach (var type in StallCatalog.Devices)
             {
-                if (StallCatalog.IsToolDevice(type))
-                {
-                    var kind = StallCatalog.ToolKind(type);
-                    if (!catalog.items.Any(e => e.kind == kind && e.prefab != null))
-                        missing.Add($"工具 {kind}");
-                    continue;
-                }
-
                 var entry = catalog.elements.FirstOrDefault(e => e.type == type && e.prefab != null);
                 if (entry.prefab == null)
                 {
@@ -114,9 +111,39 @@ namespace AlpacasOnFire.EditorTools
                     missing.Add($"裝備 {type} 的 prefab 沒有 DeployHandle（擺出來之後收不回去）");
             }
 
+            // 開張鈴不在 StallCatalog.Devices 裡（它不是裝備），要另外檢查
+            var bell = catalog.elements.FirstOrDefault(
+                e => e.type == LevelElementType.ServiceBell && e.prefab != null);
+            if (bell.prefab == null)
+                missing.Add("開張鈴 ServiceBell（沒有它就無法開張）");
+            else if (bell.prefab.GetComponent<Fusion.NetworkObject>() == null)
+                missing.Add("開張鈴的 prefab 沒有 NetworkObject（執行期生成會失敗）");
+            else if (bell.prefab.GetComponentInChildren<DeployableDevice>(true) != null)
+                missing.Add("開張鈴不該有 DeployHandle —— 它是固定設施，不進網格");
+
+            // 襯布放不下全部裝備是設計錯誤，要在建置時就抓出來，不要等到執行期
+            if (!StallCatalog.MatFitsAllDevices(out int required, out int available))
+                missing.Add($"襯布放不下全部裝備：需要 {required} 格，只有 {available} 格");
+
+            // 預設佈局必須本身就不衝突，否則第一次開箱就會看到「改放到別格」的警告
+            var occupancy = new StallGrid.Occupancy();
+            foreach (var rec in StallCatalog.DefaultLayout)
+            {
+                StallGrid.RotatedFootprint(StallCatalog.Footprint(rec.DeviceType), rec.Facing,
+                                           out int w, out int d);
+                var check = occupancy.Check(rec.CellX, rec.CellZ, w, d);
+                if (check != PlacementResult.Ok)
+                    missing.Add($"預設佈局有問題：{rec} -> {check}");
+                else
+                    occupancy.OccupyFootprint(rec.CellX, rec.CellZ, w, d);
+            }
+
             if (missing.Count == 0)
-                Debug.Log("[擺攤] 設置完整。提醒：第一次執行前記得跑一次選單 " +
-                          "Tools > Fusion > Rebuild Prefab Table，讓新的機台 prefab 進到 Fusion 的 prefab 表裡。");
+                Debug.Log($"[擺攤] 設置完整。襯布 {StallGrid.Cells}x{StallGrid.Cells} 格" +
+                          $"（{GameTuning.StallMatSize:F1} x {GameTuning.StallMatSize:F1} 公尺）、" +
+                          $"預設佈局 {StallCatalog.DefaultLayout.Length} 台無衝突。\n" +
+                          "提醒：第一次執行前記得跑一次選單 Tools > Fusion > Rebuild Prefab Table，" +
+                          "讓新的裝備 prefab 進到 Fusion 的 prefab 表裡。");
             else
                 Debug.LogError("[擺攤] 缺少以下項目，請重跑「1. 建置佔位資產」：\n - " +
                                string.Join("\n - ", missing));

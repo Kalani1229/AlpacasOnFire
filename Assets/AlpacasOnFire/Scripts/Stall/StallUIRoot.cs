@@ -16,7 +16,6 @@ namespace AlpacasOnFire.Stall
     {
         public static StallUIRoot Instance { get; private set; }
 
-        public SuitcasePanel Suitcase { get; private set; }
         public StallHud Hud { get; private set; }
         public StallResultsPanel Results { get; private set; }
 
@@ -36,9 +35,9 @@ namespace AlpacasOnFire.Stall
 
             if (GetComponent<GraphicRaycaster>() == null) gameObject.AddComponent<GraphicRaycaster>();
 
+            // 裝備選單已經整個移除：開箱時所有裝備就在場上了，沒有東西要選。
             Hud = gameObject.AddComponent<StallHud>();
             Results = gameObject.AddComponent<StallResultsPanel>();
-            Suitcase = gameObject.AddComponent<SuitcasePanel>();
         }
 
         private void OnDestroy()

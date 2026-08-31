@@ -479,6 +479,10 @@ MonoBehaviour:
   _StallOwned:
     _value: 0
   _DeviceTypeRaw: 0
+  _CellX: 0
+  _CellZ: 0
+  _FacingRaw: 0
+  _PopOrder: 0
 --- !u!1 &4441382744216474006
 GameObject:
   m_ObjectHideFlags: 0

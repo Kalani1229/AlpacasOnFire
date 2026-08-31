@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using AlpacasOnFire.Core;
 using AlpacasOnFire.Interaction;
+using Fusion;
 using UnityEngine;
 
 namespace AlpacasOnFire.Player
@@ -79,6 +80,16 @@ namespace AlpacasOnFire.Player
             if (interactable == null) return;
             if (ReferenceEquals(interactable, _player)) return;                 // 不能對自己互動
             if (interactable is Component c && c.transform.IsChildOf(_player.transform)) return;
+
+            // Fusion 的生成是延遲的：Runner.Spawn() 之後 GameObject 與碰撞體會先存在，
+            // Spawned() 要等到模擬迴圈才跑。在那個空窗期讀 [Networked] 屬性會直接丟
+            // InvalidOperationException，而 GameHud 每一幀都呼叫 FindTarget -> CanInteract，
+            // 一定會撞上（機台改成執行期生成之後才會暴露這個問題，場景物件時期沒有空窗期）。
+            //
+            // 統一在這裡擋掉還沒 Spawned、或已經 Despawned 的物件，
+            // 這樣任何 IInteractable 實作都不必各自寫防呆。
+            if (interactable is NetworkBehaviour nb && (nb.Object == null || !nb.Object.IsValid)) return;
+
             if (!_candidates.Contains(interactable)) _candidates.Add(interactable);
         }
 

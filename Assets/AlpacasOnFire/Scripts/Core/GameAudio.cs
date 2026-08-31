@@ -24,10 +24,12 @@ namespace AlpacasOnFire.Core
 
         // ---- 擺攤系統（本批新增）----
         StallOpen,       // 打開手提箱、襯布攤開
+        StallPopOut,     // 裝備從箱子裡彈出到格子上
         StallClose,      // 收攤
         DevicePlace,     // 機台放下
         DevicePickup,    // 機台拿起
         PlaceRejected,   // 放置不合法
+        BellRing,        // 敲開張鈴
         BusinessOpen,    // 開張
         BusinessClose,   // 營業時間結束
     }
@@ -60,10 +62,12 @@ namespace AlpacasOnFire.Core
             SfxId.MachineDone     => (940f, 0.22f, 0.45f, 1.2f),
             SfxId.LevelEnd        => (523f, 0.60f, 0.55f, 1.6f),
             SfxId.StallOpen       => (330f, 0.34f, 0.45f, 1.8f),
+            SfxId.StallPopOut     => (820f, 0.12f, 0.35f, 1.45f),
             SfxId.StallClose      => (600f, 0.30f, 0.45f, 0.5f),
             SfxId.DevicePlace     => (240f, 0.14f, 0.45f, 0.7f),
             SfxId.DevicePickup    => (500f, 0.11f, 0.35f, 1.3f),
             SfxId.PlaceRejected   => (160f, 0.16f, 0.40f, 0.85f),
+            SfxId.BellRing        => (1480f, 0.55f, 0.50f, 1.02f), // 清脆、幾乎不滑音，像敲鈴
             SfxId.BusinessOpen    => (700f, 0.45f, 0.55f, 1.7f),
             SfxId.BusinessClose   => (620f, 0.50f, 0.50f, 0.55f),
             _                     => (440f, 0.15f, 0.3f,  1.0f),

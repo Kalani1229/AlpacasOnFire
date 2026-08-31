@@ -4,18 +4,26 @@ using UnityEngine;
 namespace AlpacasOnFire.Stall
 {
     /// <summary>
-    /// 放置預覽的幽靈模型。純本機視覺，不同步。
+    /// 放置預覽的幽靈模型 + 目標格高亮。純本機視覺，不同步。
     ///
-    /// 用簡單的半透明方塊（加一根朝向指示）而不是實際機台 prefab 的複製品：
-    /// 佔位美術本來就是方塊，視覺落差極小，卻可以完全避開
-    /// 「在本機 Instantiate 一個帶 NetworkObject 的 prefab」會踩到的 Fusion 陷阱。
+    /// 三個部件：
+    ///  - CellHighlight：貼在格子上的方塊，佔地多大就多大（合法綠 / 不合法紅）
+    ///  - Box：裝備本體的外框
+    ///  - Facing：朝正面（+Z）伸出去的一小塊，讓玩家看得出朝向轉到哪
+    ///
+    /// 用簡單方塊而不是實際機台 prefab 的複製品：佔位美術本來就是方塊，
+    /// 視覺落差極小，卻可以完全避開「在本機 Instantiate 帶 NetworkObject 的 prefab」的陷阱。
     /// </summary>
     public class PlacementGhost : MonoBehaviour
     {
-        private static readonly Color InvalidColor = new Color(0.95f, 0.20f, 0.18f, 0.55f);
+        private static readonly Color InvalidColor   = new Color(0.95f, 0.20f, 0.18f, 0.55f);
+        private static readonly Color ValidCellColor = new Color(0.35f, 0.95f, 0.45f, 0.40f);
+        private static readonly Color InvalidCell    = new Color(0.95f, 0.20f, 0.18f, 0.40f);
 
+        private Transform _cell;
         private Transform _box;
         private Transform _nose;
+        private Renderer _cellRenderer;
         private Renderer _boxRenderer;
         private Renderer _noseRenderer;
         private MaterialPropertyBlock _mpb;
@@ -33,9 +41,11 @@ namespace AlpacasOnFire.Stall
         {
             _material = MakeTransparentMaterial();
 
-            _box = MakePiece("Box", transform, _material);
+            _cell = MakePiece("CellHighlight", transform, _material);
+            _box  = MakePiece("Box", transform, _material);
             _nose = MakePiece("Facing", transform, _material);
 
+            _cellRenderer = _cell.GetComponent<Renderer>();
             _boxRenderer = _box.GetComponent<Renderer>();
             _noseRenderer = _nose.GetComponent<Renderer>();
         }
@@ -73,29 +83,43 @@ namespace AlpacasOnFire.Stall
             return m;
         }
 
-        /// <summary>更新幽靈模型。不合法時整個轉紅。</summary>
-        public void Apply(LevelElementType type, Vector3 position, float yaw, bool valid)
+        /// <summary>
+        /// 更新幽靈模型。
+        /// </summary>
+        /// <param name="cellCenter">目標格中心的世界座標（已經吸附到格子）。</param>
+        /// <param name="rotation">依朝向索引算出來的旋轉。</param>
+        /// <param name="cellsW">旋轉後佔幾格寬。</param>
+        /// <param name="cellsD">旋轉後佔幾格深。</param>
+        /// <param name="valid">合不合法。不合法一律轉紅。</param>
+        public void Apply(LevelElementType type, Vector3 cellCenter, Quaternion rotation,
+                          int cellsW, int cellsD, bool valid)
         {
             if (!gameObject.activeSelf) gameObject.SetActive(true);
 
-            transform.position = position;
-            transform.rotation = Quaternion.Euler(0f, yaw, 0f);
+            transform.position = cellCenter;
+            transform.rotation = rotation;
+
+            float cell = GameTuning.StallCellSize;
+
+            // 目標格高亮：整塊佔地都要亮起來，一眼看得出會吃掉哪幾格
+            _cell.localPosition = new Vector3(0f, 0.03f, 0f);
+            _cell.localScale = new Vector3(cell * cellsW * 0.96f, 0.03f, cell * cellsD * 0.96f);
 
             var size = StallCatalog.GhostSize(type);
             _box.localPosition = new Vector3(0f, size.y * 0.5f, 0f);
             _box.localScale = size;
 
-            // 朝向指示：往前伸出一小塊，讓玩家看得出旋轉了幾度
+            // 朝向指示：往正面（+Z）伸出一小塊
             _nose.localPosition = new Vector3(0f, size.y * 0.5f, size.z * 0.5f + 0.18f);
             _nose.localScale = new Vector3(size.x * 0.35f, size.y * 0.35f, 0.34f);
 
             var baseColor = StallCatalog.GhostColor(type);
             baseColor.a = 0.5f;
-            var color = valid ? baseColor : InvalidColor;
 
             _mpb ??= new MaterialPropertyBlock();
-            Tint(_boxRenderer, color);
-            Tint(_noseRenderer, valid ? new Color(1f, 1f, 1f, 0.75f) : InvalidColor);
+            Tint(_cellRenderer, valid ? ValidCellColor : InvalidCell);
+            Tint(_boxRenderer, valid ? baseColor : InvalidColor);
+            Tint(_noseRenderer, valid ? new Color(1f, 1f, 1f, 0.8f) : InvalidColor);
         }
 
         private void Tint(Renderer r, Color c)

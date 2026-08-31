@@ -91,28 +91,47 @@ namespace AlpacasOnFire.Core
 
         // ================= 擺攤系統（本批新增；以上既有數值一律沒有改動）=================
 
-        // ---------- 手提箱與襯布 ----------
-        public const float StallMatSize            = 8.0f;   // 襯布邊長（公尺），正方形
+        // ---------- 襯布網格（PlateUp! 式）----------
+        public const float StallCellSize           = 1.5f;   // 網格單格邊長（公尺）
+        public const int   StallGridCells          = 6;      // 襯布是 6 x 6 格
+        /// <summary>襯布邊長 = 6 x 1.5 = 9 公尺。改格數或格子大小，這裡會自動跟著變。</summary>
+        public const float StallMatSize            = StallGridCells * StallCellSize;
+
         public const float StallMatDeployDistance  = 1.2f;   // 襯布近邊離玩家的距離
         public const float StallMatHeightOffset    = 0.02f;  // 襯布貼地的抬升，避免 Z-fighting
+        public const float StallGridLineWidth      = 0.05f;  // 佈置模式的網格線寬度
+        public const float StallSuitcaseBackOffset = 0.9f;   // 手提箱擺在襯布背緣外多遠（不佔格子）
+        // ---------- 開張鈴 ----------
+        public const float StallBellSideOffset     = 1.8f;   // 鈴鐺在背緣往右偏多遠（不佔格子）
+        public const float StallBellHeight         = 1.0f;   // 鈴鐺台面高度
+        public const float StallBellShrinkDuration = 0.45f;  // 敲下去之後縮起來消失的時間
+
+        // ---------- 開箱時的地面檢測（只有開箱做一次，裝備不再各自檢測）----------
         public const float StallDeployProbeInset   = 0.35f;  // 四角檢測往內縮，避免剛好卡在邊界
         public const float StallGroundProbeHeight  = 3.0f;   // 平坦度檢測射線的起點高度
         public const float StallGroundProbeLength  = 6.0f;   // 平坦度檢測射線長度
         public const float StallMaxGroundAngle     = 12.0f;  // 地面法線與垂直的最大容許角度（度）
         public const float StallMaxGroundStep      = 0.45f;  // 四角高低差的最大容許值（公尺）
+        public const float StallClearanceHeight    = 2.2f;   // 襯布上方要淨空多高才攤得開
+        public const float StallClearanceInset     = 0.25f;  // 淨空檢測往內縮，避免擦到旁邊的牆
 
-        // ---------- 機台放置 ----------
-        public const float StallMinDeviceSpacing   = 1.8f;   // 兩台機台中心的最小距離
-        public const float StallDeviceEdgeMargin   = 0.7f;   // 機台中心離襯布邊緣的最小距離
+        // ---------- 裝備放置 ----------
         public const float StallPlaceMaxDistance   = 12.0f;  // 準心投影的最遠距離
-        public const float StallRotationStep       = 90.0f;  // 滾輪一格轉多少度
         public const float StallDeployDuration     = 0.0f;   // 擺放／收回耗時（0 = 瞬間，先不做長按）
-        public const float StallCollectRadius      = 0.6f;   // 收攤時清除襯布上物品的額外邊界
+        public const float StallCollectRadius      = 1.2f;   // 收攤時清除襯布上物品的額外邊界
+
+        // ---------- 開箱彈出動畫（純本機視覺，不同步）----------
+        public const float StallPopDuration        = 0.35f;  // 單台裝備彈出的時間
+        public const float StallPopStagger         = 0.06f;  // 每台之間錯開多久
+        public const float StallPopHeight          = 0.9f;   // 彈出時往上拋多高
+        public const float StallPopOvershoot       = 1.12f;  // 縮放的回彈幅度
 
         // ---------- 輸送帶 ----------
         public const float ConveyorSpeed           = 1.6f;   // m/s
-        public const float ConveyorLength          = 3.0f;   // 帶面長度
-        public const float ConveyorWidth           = 0.9f;   // 帶面寬度
+        // 帶面長度要放得進一格（1.5 公尺），所以比上一版短。
+        // 之後如果把輸送帶改成 1x2 佔地，這裡就可以拉長到 2.8 左右。
+        public const float ConveyorLength          = 1.35f;  // 帶面長度
+        public const float ConveyorWidth           = 0.85f;  // 帶面寬度
         public const float ConveyorHeight          = 0.55f;  // 帶面高度
         public const float ConveyorCaptureHeight   = 0.75f;  // 帶面上方多高之內的物品會被推動
 

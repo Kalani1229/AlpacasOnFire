@@ -215,6 +215,45 @@ namespace AlpacasOnFire.Player
             // 移動方向永遠相對角色目前朝向
             var wish = transform.rotation * new Vector3(moveInput.x, 0f, moveInput.y);
             _ncc.Move(wish);
+
+            SuppressStepUpLaunch();
+        }
+
+        /// <summary>
+        /// 修正「踩到矮台階會飛起來」。
+        ///
+        /// 原因在 Fusion 的 NetworkCharacterController.Move() 最後兩行：
+        ///
+        ///     _controller.Move(moveVelocity * deltaTime);
+        ///     Data.Velocity = (transform.position - previousPos) * Runner.TickRate;
+        ///
+        /// 它是用「實際位移」反推速度。CharacterController 踩上矮台階時，Unity 會在
+        /// **一個 tick 之內**把膠囊往上瞬移一整個 stepOffset（本專案 0.35 公尺），
+        /// 於是速度被算成 0.35 x 60 = 21 m/s 向上。
+        ///
+        /// 而 NCC 下一個 tick 的接地保護只歸零「負的」y：
+        ///
+        ///     if (Data.Grounded &amp;&amp; moveVelocity.y &lt; 0) moveVelocity.y = 0f;
+        ///
+        /// 那個正的 y 完整活下來，重力要好幾秒才拉得回來 —— 角色就飛出去了。
+        /// 走上斜坡也是同一個機制。
+        ///
+        /// 修法：每次 Move 之後把向上的殘留速度歸零。本專案沒有跳躍
+        /// （NCC 的 Jump() 從來沒有被呼叫過），所以「向上的速度」一律是這個 bug 的產物，
+        /// 直接砍掉不會有副作用；往下的速度（重力、墜落）完全不動。
+        ///
+        /// 為什麼不直接改 Fusion 的檔案：那是 SDK 原始碼，下次更新 Fusion 就會被覆蓋掉。
+        ///
+        /// **如果之後要加跳躍**，這裡要改成只在 `_ncc.Grounded` 為 true 時歸零，
+        /// 否則跳到一半會被砍掉。
+        /// </summary>
+        private void SuppressStepUpLaunch()
+        {
+            var v = _ncc.Velocity;
+            if (v.y <= 0f) return;
+
+            v.y = 0f;
+            _ncc.Velocity = v;
         }
 
         private void TickFleece()
