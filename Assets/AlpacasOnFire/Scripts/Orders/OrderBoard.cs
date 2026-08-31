@@ -1,5 +1,8 @@
 using System;
+using System.Collections.Generic;
 using AlpacasOnFire.Core;
+using AlpacasOnFire.Machines;
+using AlpacasOnFire.Stall;
 using Fusion;
 using UnityEngine;
 
@@ -99,8 +102,8 @@ namespace AlpacasOnFire.Orders
             if (ActiveCount() >= Mathf.Min(Slots, GameTuning.MaxActiveOrders)) return;
 
             var spec = GarmentSpec.Create(
-                Pick(_patterns, PatternType.TShirt),
-                Pick(_colors, DyeColorType.White),
+                PickPattern(),
+                PickColor(),
                 UnityEngine.Random.value < _accessoryChance ? Pick(_accessories, AccessoryType.None) : AccessoryType.None);
 
             Orders.Set(slot, new OrderEntry
@@ -115,6 +118,67 @@ namespace AlpacasOnFire.Orders
 
         private static T Pick<T>(T[] pool, T fallback)
             => pool == null || pool.Length == 0 ? fallback : pool[UnityEngine.Random.Range(0, pool.Length)];
+
+        // ---------------- 訂單內容只從「攤位上做得出來的東西」抽 ----------------
+        //
+        // 一台機器只做一種版型，所以如果訂單要褲子、但攤位上只有 T-shirt 縫紉機，
+        // 那張訂單就永遠無解。這裡直接從實際擺出來的裝備推導可能的組合。
+        // 攤位還沒擺出來時（例如測試場景）退回 Inspector 上的設定。
+
+        private readonly List<PatternType> _patternBuffer = new();
+
+        private bool HasStallDevices()
+        {
+            for (int i = 0; i < DeployableDevice.All.Count; i++)
+            {
+                var dev = DeployableDevice.All[i];
+                if (dev != null && dev.Object != null && dev.StallOwned) return true;
+            }
+            return false;
+        }
+
+        private bool HasStallDevice(LevelElementType type)
+        {
+            for (int i = 0; i < DeployableDevice.All.Count; i++)
+            {
+                var dev = DeployableDevice.All[i];
+                if (dev == null || dev.Object == null || !dev.StallOwned) continue;
+                if (dev.DeviceType == type) return true;
+            }
+            return false;
+        }
+
+        private PatternType PickPattern()
+        {
+            _patternBuffer.Clear();
+
+            for (int i = 0; i < DeployableDevice.All.Count; i++)
+            {
+                var dev = DeployableDevice.All[i];
+                if (dev == null || dev.Object == null || !dev.StallOwned) continue;
+
+                var sewing = dev.GetComponent<SewingMachine>();
+                if (sewing == null) continue;
+                if (sewing.OutputPattern == PatternType.None) continue;
+                if (!_patternBuffer.Contains(sewing.OutputPattern)) _patternBuffer.Add(sewing.OutputPattern);
+            }
+
+            if (_patternBuffer.Count > 0)
+                return _patternBuffer[UnityEngine.Random.Range(0, _patternBuffer.Count)];
+
+            return Pick(_patterns, PatternType.TShirt);
+        }
+
+        private DyeColorType PickColor()
+        {
+            if (!HasStallDevices()) return Pick(_colors, DyeColorType.White);
+
+            // 要染色得同時有果汁機（做染劑）和噴槍架（噴上去），少一個就只出白色訂單
+            bool canDye = HasStallDevice(LevelElementType.Juicer)
+                       && HasStallDevice(LevelElementType.ToolRackSprayGun);
+
+            return canDye ? Pick(_colors, DyeColorType.White) : DyeColorType.White;
+        }
 
         public int ActiveCount()
         {

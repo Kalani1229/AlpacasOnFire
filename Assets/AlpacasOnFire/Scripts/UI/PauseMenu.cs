@@ -50,7 +50,6 @@ namespace AlpacasOnFire.UI
         {
             var kb = Keyboard.current;
             if (kb == null || !kb.escapeKey.wasPressedThisFrame) return;
-            if (PatternSelectPanel.Instance != null && PatternSelectPanel.Instance.IsOpen) return;
             if (ResultsScreen.Instance != null && ResultsScreen.Instance.IsOpen) return;
             // 擺攤結算畫面也要讓 Esc 先關自己，不要疊一層暫停選單上去
             if (Stall.StallResultsPanel.Instance != null && Stall.StallResultsPanel.Instance.IsOpen) return;

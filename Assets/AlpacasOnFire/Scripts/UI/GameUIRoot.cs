@@ -17,7 +17,6 @@ namespace AlpacasOnFire.UI
         public GameHud Hud { get; private set; }
         public PauseMenu Pause { get; private set; }
         public ResultsScreen Results { get; private set; }
-        public PatternSelectPanel PatternSelect { get; private set; }
 
         private void Awake()
         {
@@ -42,7 +41,6 @@ namespace AlpacasOnFire.UI
             Hud = gameObject.AddComponent<GameHud>();
             Pause = gameObject.AddComponent<PauseMenu>();
             Results = gameObject.AddComponent<ResultsScreen>();
-            PatternSelect = gameObject.AddComponent<PatternSelectPanel>();
         }
 
         private void OnDestroy()

@@ -53,7 +53,7 @@ namespace AlpacasOnFire.Core
         public const int   WoolPerShear        = 1;      // 每次剃毛掉 1 顆羊毛
 
         // ---------- 縫紉機 ----------
-        public const int   SewingWoolRequired  = 3;      // 3 份羊毛 = 1 件衣服
+        public const int   SewingWoolRequired  = 1;      // 1 份羊毛 = 1 件衣服
         public const float SewingProcessSeconds= 6.0f;
 
         // ---------- 果汁機 ----------
@@ -134,6 +134,8 @@ namespace AlpacasOnFire.Core
         public const float ConveyorWidth           = 0.85f;  // 帶面寬度
         public const float ConveyorHeight          = 0.55f;  // 帶面高度
         public const float ConveyorCaptureHeight   = 0.75f;  // 帶面上方多高之內的物品會被推動
+        // 機台完成品自動出貨到輸送帶：出料口周圍多遠之內的輸送帶算「接上了」
+        public const float MachineConveyorLinkRadius = 1.8f;
 
         // ---------- 交貨窗口 ----------
         public const float DeliveryCounterHeight   = 1.3f;

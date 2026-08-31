@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using AlpacasOnFire.Core;
 using AlpacasOnFire.Items;
 using Fusion;
@@ -22,10 +23,30 @@ namespace AlpacasOnFire.Stall
         [SerializeField] private Transform _outputAnchor;
         [SerializeField] private Renderer[] _directionMarkers;
 
+        /// <summary>場上所有輸送帶。機台要找「旁邊有沒有往外送的輸送帶」時用，
+        /// 不依賴碰撞體，測試場景與攤位上都成立。</summary>
+        public static readonly List<Conveyor> All = new();
+
         private float _scrollPhase;
 
         public Vector3 Direction => transform.forward;
         public Transform OutputAnchor => _outputAnchor != null ? _outputAnchor : transform;
+
+        /// <summary>靠近入口那一端的帶面位置 —— 機台自動出貨就放在這裡。</summary>
+        public Vector3 EntryPoint => transform.TransformPoint(new Vector3(
+            0f,
+            GameTuning.ConveyorHeight + 0.18f,
+            -GameTuning.ConveyorLength * 0.5f + 0.2f));
+
+        public override void Spawned()
+        {
+            if (!All.Contains(this)) All.Add(this);
+        }
+
+        public override void Despawned(NetworkRunner runner, bool hasState)
+        {
+            All.Remove(this);
+        }
 
         public override void FixedUpdateNetwork()
         {

@@ -58,10 +58,11 @@ namespace AlpacasOnFire.Player
             _move = Vector2.zero;
             if (kb != null && LookEnabled)
             {
-                if (kb.wKey.isPressed) _move.y += 1f;
-                if (kb.sKey.isPressed) _move.y -= 1f;
-                if (kb.dKey.isPressed) _move.x += 1f;
-                if (kb.aKey.isPressed) _move.x -= 1f;
+                // WASD 與方向鍵都能移動
+                if (kb.wKey.isPressed || kb.upArrowKey.isPressed)    _move.y += 1f;
+                if (kb.sKey.isPressed || kb.downArrowKey.isPressed)  _move.y -= 1f;
+                if (kb.dKey.isPressed || kb.rightArrowKey.isPressed) _move.x += 1f;
+                if (kb.aKey.isPressed || kb.leftArrowKey.isPressed)  _move.x -= 1f;
                 if (_move.sqrMagnitude > 1f) _move.Normalize();
             }
 
