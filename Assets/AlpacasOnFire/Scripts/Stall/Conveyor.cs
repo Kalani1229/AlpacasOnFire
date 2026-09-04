@@ -56,26 +56,53 @@ namespace AlpacasOnFire.Stall
             float halfLength = GameTuning.ConveyorLength * 0.5f;
             float halfWidth = GameTuning.ConveyorWidth * 0.5f;
 
-            for (int i = 0; i < CarriableItem.All.Count; i++)
+            for (int i = CarriableItem.All.Count - 1; i >= 0; i--)
             {
                 var item = CarriableItem.All[i];
                 if (item == null || item.Object == null) continue;
                 if (item.IsHeld || item.InFlight) continue;          // 拿在手上／飛行中的不管
                 if (item.Kind == ItemKind.Suitcase) continue;        // 手提箱不上輸送帶
 
-                // 換算成輸送帶的本地座標，判斷有沒有在帶面上
                 var local = transform.InverseTransformPoint(item.transform.position);
-                if (Mathf.Abs(local.x) > halfWidth) continue;
-                if (Mathf.Abs(local.z) > halfLength) continue;
 
+                // 高度差太多就不管（在輸送帶下面很多、或還飛在半空中）
                 float aboveBelt = local.y - GameTuning.ConveyorHeight;
-                if (aboveBelt < -0.15f || aboveBelt > GameTuning.ConveyorCaptureHeight) continue;
+                if (aboveBelt < GameTuning.ConveyorPickupDrop
+                 || aboveBelt > GameTuning.ConveyorCaptureHeight) continue;
 
+                bool onBelt = IsOnBelt(local);
+
+                // ---- 帶面外圍：把附近的東西吸上來 ----
+                // 不用剛好丟中帶面，丟到旁邊也會自己爬上去
+                if (!onBelt)
+                {
+                    // **已經在別條輸送帶上的東西不要搶。**
+                    // 相鄰兩條的帶面只差 0.15 公尺，遠在吸附半徑內 ——
+                    // 不擋的話後面那條會一直把東西往回拉，跟前面那條互相拉扯，
+                    // 物品就卡在交界處不動了。
+                    if (IsOnAnyBelt(item)) continue;
+
+                    float outX = Mathf.Max(0f, Mathf.Abs(local.x) - halfWidth);
+                    float outZ = Mathf.Max(0f, Mathf.Abs(local.z) - halfLength);
+                    if (outX * outX + outZ * outZ >
+                        GameTuning.ConveyorAttractRadius * GameTuning.ConveyorAttractRadius) continue;
+
+                    var target = new Vector3(
+                        Mathf.Clamp(local.x, -halfWidth * 0.6f, halfWidth * 0.6f),
+                        GameTuning.ConveyorHeight + 0.12f,
+                        Mathf.Clamp(local.z, -halfLength * 0.9f, halfLength * 0.9f));
+
+                    var pulled = Vector3.MoveTowards(local, target, GameTuning.ConveyorAttractSpeed * dt);
+                    item.transform.position = transform.TransformPoint(pulled);
+                    continue;   // 這一 tick 先吸進來，下一 tick 才開始被推
+                }
+
+                // ---- 帶面上：往前推 ----
                 float nextZ = local.z + GameTuning.ConveyorSpeed * dt;
 
                 if (nextZ >= halfLength)
                 {
-                    // 末端：前面還有一條同向的輸送帶就直接交棒，不要落地
+                    // 末端 ①：前面還有一條同向的輸送帶 -> 交棒，不要落地
                     var next = FindNextConveyor();
                     if (next != null)
                     {
@@ -83,8 +110,11 @@ namespace AlpacasOnFire.Stall
                         continue;
                     }
 
-                    var exit = OutputAnchor.position;
-                    item.DetachToGround(exit);
+                    // 末端 ②：前面的機台收得下這個東西 -> 直接送進去
+                    if (TryDeliverToMachine(item)) continue;
+
+                    // 末端 ③：什麼都沒有，落地
+                    item.DetachToGround(OutputAnchor.position);
                     continue;
                 }
 
@@ -94,6 +124,54 @@ namespace AlpacasOnFire.Stall
                     nextZ);
                 item.transform.position = transform.TransformPoint(nextLocal);
             }
+        }
+
+        /// <summary>這個本地座標算不算「在帶面上」。</summary>
+        private static bool IsOnBelt(Vector3 local)
+        {
+            float aboveBelt = local.y - GameTuning.ConveyorHeight;
+            if (aboveBelt < GameTuning.ConveyorOnBeltDrop
+             || aboveBelt > GameTuning.ConveyorCaptureHeight) return false;
+
+            return Mathf.Abs(local.x) <= GameTuning.ConveyorWidth * 0.5f
+                && Mathf.Abs(local.z) <= GameTuning.ConveyorLength * 0.5f;
+        }
+
+        /// <summary>這個物品是不是已經在某一條輸送帶的帶面上（包含自己）。</summary>
+        private static bool IsOnAnyBelt(CarriableItem item)
+        {
+            for (int i = 0; i < All.Count; i++)
+            {
+                var c = All[i];
+                if (c == null || c.Object == null) continue;
+                if (IsOnBelt(c.transform.InverseTransformPoint(item.transform.position))) return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// 末端前方有機台而且收得下的話，直接把東西送進去。
+        /// 用的是跟「丟進機台」同一個 IThrownItemReceiver 介面 ——
+        /// 所以縫紉機收羊毛、果汁機收染料、交貨窗口收成品衣服，三種都自動成立，
+        /// 之後新增的機台只要實作那個介面就會一起支援。
+        /// </summary>
+        private bool TryDeliverToMachine(CarriableItem item)
+        {
+            var probe = transform.TransformPoint(new Vector3(
+                0f, GameTuning.ConveyorHeight, GameTuning.ConveyorLength * 0.5f + 0.35f));
+
+            var hits = Physics.OverlapSphere(probe, GameTuning.ConveyorDeliverRadius,
+                                             ~0, QueryTriggerInteraction.Collide);
+            foreach (var col in hits)
+            {
+                var receiver = col.GetComponentInParent<IThrownItemReceiver>();
+                if (receiver == null) continue;
+                if (!receiver.CanAcceptThrown(item) || !receiver.AcceptThrown(item)) continue;
+
+                Runner.Despawn(item.Object);
+                return true;
+            }
+            return false;
         }
 
         /// <summary>

@@ -161,6 +161,14 @@ namespace AlpacasOnFire.Core
         public const float ConveyorWidth           = 0.85f;  // 帶面寬度
         public const float ConveyorHeight          = 0.55f;  // 帶面高度
         public const float ConveyorCaptureHeight   = 0.75f;  // 帶面上方多高之內的物品會被推動
+        // 帶面外圍的吸附：丟到輸送帶「附近」也會自己爬上去，不用剛好丟中
+        public const float ConveyorAttractRadius   = 1.0f;   // 從帶面邊緣往外算
+        public const float ConveyorAttractSpeed    = 2.5f;   // 被吸過去的速度（m/s）
+        public const float ConveyorDeliverRadius   = 1.1f;   // 末端前方多遠內的機台算「接得到」
+        // 物品躺在地上時大約比帶面低 0.35，所以下界要明顯低於它，
+        // 不然「丟到旁邊會爬上輸送帶」會卡在浮點誤差上時靈時不靈
+        public const float ConveyorPickupDrop      = -0.7f;   // 低於帶面多少之內還撿得到
+        public const float ConveyorOnBeltDrop      = -0.2f;   // 判定「已經在帶面上」的下界
         // 相鄰格是 1.5 公尺、斜角是 2.12 公尺，門檻取 1.9 剛好只認正交相鄰
         public const float ConveyorLinkRadius        = 1.9f;   // 兩條輸送帶串在一起的判定
         public const float MachineConveyorLinkRadius = 1.9f;   // 機台旁有輸送帶就自動出貨
