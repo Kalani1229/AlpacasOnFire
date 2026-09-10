@@ -19,11 +19,16 @@ namespace AlpacasOnFire.Machines
     /// 佈局記住（顏色存在 StallSlotRecord.Variant）。這一點很重要 ——
     /// 把箱子擺在織布機旁邊可以省下每趟的來回，動線優化才有意義。
     ///
-    /// 互動分工：
-    ///   佈置模式 -> Space 拿起來重擺（DeployableDevice 優先權 4 壓過這裡的 1）
-    ///   營業模式 -> **右鍵**拿一份毛（DeployableDevice 讓開，右鍵走次要互動）
+    /// 互動分工 —— 兩個模式共用左鍵／Space，靠模式本身錯開，不會打架：
+    ///   佈置模式 -> 拿起來重擺（DeployableDevice 優先權 4 壓過這裡的 1；
+    ///               這時 IsBusiness 為 false，本類別的 CanInteract 直接回 false）
+    ///   營業模式 -> 拿一份毛（DeployableDevice 的 CanInteract 看到
+    ///               !IsArrangeMode 就讓開，只剩本類別接得住）
+    ///
+    /// 拿毛原本綁在右鍵。移到左鍵是因為「拿一份毛」是即時動作，
+    /// 而右鍵現在只留給設定類動作（手提箱選材料、放置模式取消）。
     /// </summary>
-    public class MaterialCrate : NetworkInteractable, ISecondaryInteractable
+    public class MaterialCrate : NetworkInteractable
     {
         /// <summary>場上所有的素材箱。顧客抽需求、開張裝料、收攤退料都要走訪它。</summary>
         public static readonly List<MaterialCrate> All = new();
@@ -103,15 +108,22 @@ namespace AlpacasOnFire.Machines
             return returned;
         }
 
-        // ---------------- Space（佈置模式交給 DeployableDevice）----------------
+        // ---------------- 左鍵／Space：拿一份毛 ----------------
 
         public override bool CanInteract(in InteractionContext ctx)
         {
-            // Space 不拿毛 —— 拿毛是右鍵。這裡回 false 但 GetPrompt 仍會給提示，
-            // 免得玩家對著箱子按 Space 卻什麼都沒發生、以為壞掉了。
-            return false;
+            if (!IsBusiness || Remaining <= 0) return false;
+            if (ctx.Player == null || !ctx.IsEmptyHanded) return false;
+            return true;
         }
 
+        /// <summary>
+        /// CanInteract 回 false 的時候也要給提示 —— 玩家對著箱子按左鍵卻什麼都沒發生時，
+        /// 要看得出是「還沒開張」「空了」還是「手上有東西」，不然會以為壞掉了。
+        ///
+        /// 這些提示同時擋掉了誤丟：面前有這個箱子（即使不能用），
+        /// PlayerController 的左鍵第 3 條就不成立，手上的毛不會被扔出去。
+        /// </summary>
         public override string GetPrompt(in InteractionContext ctx)
         {
             string colour = PlaceholderPalette.DyeName(Color);
@@ -121,29 +133,12 @@ namespace AlpacasOnFire.Machines
 
             if (Remaining <= 0) return $"{colour}毛箱：空了";
             if (!ctx.IsEmptyHanded) return $"先空出手才能拿{colour}毛";
-            return $"[右鍵] 拿{colour}毛（剩 {Remaining}）";
+            return $"[左鍵] 拿{colour}毛（剩 {Remaining}）";
         }
 
-        public override void Interact(in InteractionContext ctx) { /* 拿毛走右鍵 */ }
-
-        // ---------------- 右鍵：拿一份毛 ----------------
-
-        public bool CanSecondaryInteract(in InteractionContext ctx)
+        public override void Interact(in InteractionContext ctx)
         {
-            if (!IsBusiness || Remaining <= 0) return false;
-            if (ctx.Player == null || !ctx.IsEmptyHanded) return false;
-            return true;
-        }
-
-        public string GetSecondaryPrompt(in InteractionContext ctx)
-        {
-            if (!CanSecondaryInteract(in ctx)) return null;
-            return $"[右鍵] 拿{PlaceholderPalette.DyeName(Color)}毛（剩 {Remaining}）";
-        }
-
-        public void SecondaryInteract(in InteractionContext ctx)
-        {
-            if (!HasStateAuthority || !CanSecondaryInteract(in ctx)) return;
+            if (!HasStateAuthority || !CanInteract(in ctx)) return;
 
             var spec = GarmentSpec.Create(PatternType.None, Color);
             var wool = ItemFactory.SpawnIntoHands(Runner, ItemKind.Wool, spec, ctx.Player);
