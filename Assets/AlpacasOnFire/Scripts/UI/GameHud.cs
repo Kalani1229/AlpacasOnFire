@@ -273,17 +273,24 @@ namespace AlpacasOnFire.UI
             var held = p.Carry.Held;
             _carryLabel.text = held != null ? $"手上：{held.DisplayName}" : "手上：空";
 
-            // 提示：接住優先於其他互動（跟 Q 鍵的判定順序一致）
+            // 提示的判定順序**必須跟 PlayerController.HandlePrimaryPress 完全一致**，
+            // 不然會出現「提示說可以丟、按下去卻不丟」的落差。
+            //   接住 -> 互動 -> （手上有東西且面前空無一物）丟出 -> 什麼都不做
             string prompt = null;
             if (p.Carry.FindCatchable(GameTuning.CatchManualRadius, requireFacing: false) != null)
             {
-                prompt = "[Space] 接住！";
+                prompt = "[左鍵] 接住！";
             }
             else
             {
                 var target = p.Interactor.FindTarget(out var ctx);
                 if (target != null) prompt = target.GetPrompt(in ctx);
-                if (string.IsNullOrEmpty(prompt) && held != null) prompt = "[Q] 丟出";
+
+                // 只有「面前真的空無一物」才顯示丟出。面前有東西但現在不能用
+                // （機台放滿了、成品還沒被拿走）要維持顯示該物件自己的拒絕提示，
+                // 因為那種情況按左鍵不會丟。
+                if (string.IsNullOrEmpty(prompt) && held != null && !p.Interactor.HasAnyTargetInRange())
+                    prompt = $"[左鍵] 丟出 {held.DisplayName}";
             }
             _promptLabel.text = prompt ?? "";
 

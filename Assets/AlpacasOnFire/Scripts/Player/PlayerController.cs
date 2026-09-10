@@ -55,6 +55,7 @@ namespace AlpacasOnFire.Player
         private Material[] _fadeOriginals;
         private bool _bodyFaded;
         private PlayerInteractor _interactor;
+        private PlayerStallAgent _stallAgent;
         private MaterialPropertyBlock _mpb;
         private PlayerCameraRig _rig;
 
@@ -74,6 +75,7 @@ namespace AlpacasOnFire.Player
             _ncc = GetComponent<NetworkCharacterController>();
             ConfigureController();
             _carry = GetComponent<PlayerCarry>();
+            _stallAgent = GetComponent<PlayerStallAgent>();   // 舊 prefab 上可能沒有，允許 null
             CacheFadeRenderers();
             _interactor = new PlayerInteractor(this);
             gameObject.name = $"Alpaca_P{ColorIndex + 1}";
@@ -146,16 +148,14 @@ namespace AlpacasOnFire.Player
                 {
                     var ctx = _interactor.BuildContext();
 
+                    // Q：丟出的別名。左鍵接管丟出之後它變成「近距離硬要丟」的逃生口 ——
+                    // 中間卡著一台機器、想把毛丟到後面的輸送帶時，左鍵會被那台機器吃掉，
+                    // 這時候只剩 Q 丟得出去。不寫進教學，試玩發現沒人按再拿掉。
                     if (pressed.IsSet(GameButton.ThrowCatch))
                         _carry.HandleThrow(in ctx);
 
                     if (pressed.IsSet(GameButton.Interact))
-                    {
-                        // 接住優先於情境互動：有東西滯空在接得到的範圍內時，
-                        // Space／左鍵一律先算接住；沒接到才跑正常的互動。
-                        if (!_carry.TryManualCatch())
-                            _interactor.TryInteract();
-                    }
+                        HandlePrimaryPress(in ctx);
 
                     // v6：E 拿出／收起隨身剃毛器
                     if (pressed.IsSet(GameButton.DefaultTool))
@@ -164,7 +164,11 @@ namespace AlpacasOnFire.Player
                     // v6：右鍵的次要互動（手提箱選色／切色）。
                     // 手上拿著 IHoldTool 時 FindSecondaryTarget 會直接回 null，
                     // 所以拿著噴槍時右鍵永遠是噴漆，不會被準心前方的東西搶走。
-                    if (pressed.IsSet(GameButton.UseTool))
+                    //
+                    // 放置預覽中右鍵是「取消放置」（PlayerStallAgent 自己在本機讀），
+                    // 這裡要讓開 —— 不然舉著機台站在手提箱旁邊按右鍵會同時取消放置
+                    // 又打開選色面板。
+                    if (pressed.IsSet(GameButton.UseTool) && !IsPlacingDevice)
                         _interactor.TrySecondaryInteract();
 
                     _carry.TickTool(in ctx, input.Buttons.IsSet(GameButton.UseTool), Runner.DeltaTime);
@@ -182,6 +186,53 @@ namespace AlpacasOnFire.Player
                 TickFleece();
                 CheckFellOutOfWorld();
             }
+        }
+
+        /// <summary>放置預覽中（手上舉著一台機台等著放下）。</summary>
+        private bool IsPlacingDevice =>
+            _stallAgent != null && _stallAgent.Object != null && _stallAgent.Object.IsValid
+            && _stallAgent.HasPending;
+
+        /// <summary>
+        /// 左鍵／Space：所有的即時動作都收斂到這裡，依序判斷，第一個成立的就執行。
+        ///
+        ///   1. 接得到滯空中的東西        -> 接住
+        ///   2. 互動範圍內找得到有效目標  -> 互動
+        ///   3. 手上有東西，而且面前**完全沒有任何互動物** -> 丟出
+        ///   4. 其他                      -> 不做事
+        ///
+        /// 第 3 條的條件是關鍵：**「沒有任何互動物」不等於「互動失敗」**。
+        /// 機台就在面前但已經放滿、或成品還沒被拿走時 CanInteract 會回 false，
+        /// 那種情況必須落到第 4 條。否則玩家會在機台滿的時候把手上的毛
+        /// 往機台方向扔出去 —— 同樣的畫面、同樣的按鍵，因為一個看不見的狀態
+        /// 產生完全不同的結果。
+        ///
+        /// 這樣切不會犧牲「扔進機台」：互動範圍 2.5 公尺、丟出射程約 7.8 公尺，
+        /// 兩者本來就分開。近的走過去放，遠的才需要丟，而遠的不在互動範圍內，
+        /// 自然會落到第 3 條 —— 距離替玩家做了判斷。
+        ///
+        /// 只在 StateAuthority 呼叫。
+        /// </summary>
+        private void HandlePrimaryPress(in InteractionContext ctx)
+        {
+            // 1. 接住優先於情境互動：有東西滯空在接得到的範圍內時，一律先算接住
+            if (_carry.TryManualCatch()) return;
+
+            // 2. 正常的情境互動
+            if (_interactor.TryInteract()) return;
+
+            // 3. 面前空無一物才丟。丟出走既有的 HandleThrow，不另外寫一套
+            if (_carry.HasItem && !_interactor.HasAnyTargetInRange())
+            {
+                _carry.HandleThrow(in ctx);
+                return;
+            }
+
+            // 4. 面前有東西但現在不能用 -> 什麼都不做，給一聲拒絕音，
+            //    讓玩家知道按鍵有進去、是狀態不對。
+            //    空手對著空氣按左鍵不出聲 —— 那是最常見的誤按，每次都叫會很吵。
+            if (_carry.HasItem)
+                GameAudio.PlayAt(SfxId.PlaceRejected, transform.position);
         }
 
         /// <summary>

@@ -190,8 +190,8 @@ namespace AlpacasOnFire.Stall
             string facing = $"朝{StallGrid.FacingName(PendingFacing)}（{StallCatalog.FacingMeaning(PendingType)}）";
 
             return result == PlacementResult.Ok
-                ? $"[Space] 放下{name}　{facing}　[滾輪] 轉 90°　[Q] 取消"
-                : $"{StallGeometry.Describe(result)}　[滾輪] 轉 90°　[Q] 取消";
+                ? $"[左鍵] 放下{name}　{facing}　[滾輪] 轉 90°　[右鍵] 取消"
+                : $"{StallGeometry.Describe(result)}　[滾輪] 轉 90°　[右鍵] 取消";
         }
 
         // ---------------- RPC（用戶端 -> 狀態權威）----------------
@@ -215,7 +215,7 @@ namespace AlpacasOnFire.Stall
             StallManager.LocalNotice(reason);
         }
 
-        // ---------------- 本機輸入（滾輪旋轉 / Q 取消）----------------
+        // ---------------- 本機輸入（滾輪旋轉 / 右鍵取消）----------------
 
         private void Update()
         {
@@ -226,16 +226,18 @@ namespace AlpacasOnFire.Stall
             if (input != null && !input.LookEnabled) return;
 
             var mouse = Mouse.current;
-            if (mouse != null)
-            {
-                float scroll = mouse.scroll.ReadValue().y;
-                if (Mathf.Abs(scroll) > 0.01f)
-                    RPC_RotatePending(scroll > 0f ? 1 : -1);
-            }
+            if (mouse == null) return;
 
-            var kb = Keyboard.current;
-            // Q：預覽中代表取消。這時候手上是空的，既有的丟／接邏輯本來就不會做事，不會打架。
-            if (kb != null && kb.qKey.wasPressedThisFrame)
+            float scroll = mouse.scroll.ReadValue().y;
+            if (Mathf.Abs(scroll) > 0.01f)
+                RPC_RotatePending(scroll > 0f ? 1 : -1);
+
+            // 右鍵：取消放置。
+            // 取消是設定類動作，歸右鍵才符合「左鍵即時、右鍵設定」的規則
+            // （左鍵已經被接住／互動／丟出佔滿了）。
+            // PlayerController 在 HasPending 為 true 時會跳過次要互動，
+            // 所以這裡不會跟手提箱的右鍵選色打架。
+            if (mouse.rightButton.wasPressedThisFrame)
                 RPC_CancelPending();
         }
 

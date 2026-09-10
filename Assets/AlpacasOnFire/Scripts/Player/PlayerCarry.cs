@@ -131,9 +131,13 @@ namespace AlpacasOnFire.Player
             Stall.StallManager.LocalNotice("先空出手才能拿剃毛器");
         }
 
-        // ---------------- 丟出（Q）----------------
+        // ---------------- 丟出（左鍵第 3 順位 / Q）----------------
 
-        /// <summary>Q 只負責丟出。接住已經移到互動鍵（Space／左鍵）與自動接住。</summary>
+        /// <summary>
+        /// 純粹的丟出，不做任何前置判斷 —— 要不要丟由呼叫端決定。
+        /// 兩個入口：PlayerController.HandlePrimaryPress 的第 3 順位（面前空無一物），
+        /// 以及 Q（近距離硬要丟的逃生口）。
+        /// </summary>
         public void HandleThrow(in InteractionContext ctx)
         {
             if (!HasStateAuthority || !HasItem) return;

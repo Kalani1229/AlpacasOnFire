@@ -85,6 +85,50 @@ namespace AlpacasOnFire.Player
             return best;
         }
 
+        /// <summary>
+        /// 互動範圍內、大致在面前，有沒有「任何」互動物 —— **不看 CanInteract**。
+        ///
+        /// 為什麼需要它：FindTarget() 已經把 CanInteract 為 false 的候選濾掉了，
+        /// 所以「面前空無一物」與「面前有東西但現在不能用」從回傳值上分不出來。
+        /// 左鍵的丟出分支必須分得出來 —— 機台滿了的時候按左鍵應該什麼都不做，
+        /// 而不是把手上的毛往機台方向扔出去（同樣的畫面、同樣的按鍵，
+        /// 卻因為一個看不見的狀態產生完全不同的結果）。
+        ///
+        /// 距離與面向的門檻**必須跟 FindTarget() 一模一樣**，
+        /// 不然會出現「提示說可以丟、按下去卻不丟」的落差。
+        ///
+        /// 唯讀，任何端都可以呼叫（HUD 提示要用）。
+        /// </summary>
+        public bool HasAnyTargetInRange()
+        {
+            var ctx = BuildContext();
+            CollectCandidates(in ctx);
+
+            var origin = ctx.Origin;
+            var dir = ctx.Direction;
+
+            foreach (var candidate in _candidates)
+            {
+                // 自己手上的東西不算「面前有東西」。
+                // 拿在手上的物件位置就在手上錨點，本來就在準心前方的判定範圍內；
+                // 而且 CarriableItem.UpdateColliders() 只關掉非 trigger 的碰撞體，
+                // 所以帶 trigger 的手持物（手提箱的 HeldProbe）被拿著時仍然掃得到。
+                // 不排除的話「手上有東西」永遠等於「面前有東西」，第 3 條就永遠不會成立。
+                if (ReferenceEquals(candidate, ctx.Held)) continue;
+
+                var anchor = candidate.InteractionAnchor;
+                if (anchor == null) continue;
+
+                var to = anchor.position - origin;
+                float dist = to.magnitude;
+                if (dist > GameTuning.InteractRange + 0.6f) continue;
+                if (dist > 0.05f && Vector3.Dot(to / dist, dir) < 0.2f) continue;
+
+                return true;   // 有東西就夠了，能不能用不是這支的問題
+            }
+            return false;
+        }
+
         private void Collect(Collider col)
         {
             if (col == null) return;
@@ -105,11 +149,17 @@ namespace AlpacasOnFire.Player
             if (!_candidates.Contains(interactable)) _candidates.Add(interactable);
         }
 
-        /// <summary>Space 被按下。只在 StateAuthority 上呼叫。</summary>
-        public void TryInteract()
+        /// <summary>
+        /// Space／左鍵被按下。只在 StateAuthority 上呼叫。
+        /// 回傳有沒有真的互動到 —— 呼叫端要靠它決定要不要往下跑丟出。
+        /// </summary>
+        public bool TryInteract()
         {
             var target = FindTarget(out var ctx);
-            target?.Interact(in ctx);
+            if (target == null) return false;
+
+            target.Interact(in ctx);
+            return true;
         }
 
         /// <summary>
