@@ -19867,8 +19867,8 @@ Transform:
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children:
-  - {fileID: 8614764292535479877}
   - {fileID: 5079330106191468466}
+  - {fileID: 8614764292535479877}
   - {fileID: 4545521580540597875}
   - {fileID: 5851260050164339838}
   m_Father: {fileID: 543450653523869245}
@@ -30082,7 +30082,7 @@ GameObject:
   - component: {fileID: 543450653523869245}
   - component: {fileID: 919132149331666056}
   m_Layer: 0
-  m_Name: model
+  m_Name: Model
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
