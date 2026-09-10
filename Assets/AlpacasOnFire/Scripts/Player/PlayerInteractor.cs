@@ -27,10 +27,12 @@ namespace AlpacasOnFire.Player
             return new InteractionContext(_player, _player.Carry.Held, origin, dir, _player.Runner);
         }
 
-        /// <summary>找目前準心對到、且在這個情境下真的可以互動的物件。唯讀，任何端都可以呼叫。</summary>
-        public IInteractable FindTarget(out InteractionContext ctx)
+        /// <summary>
+        /// 掃出準心附近所有的 IInteractable。主要互動與次要互動共用這一段，
+        /// 只是後續的篩選條件不同。
+        /// </summary>
+        private void CollectCandidates(in InteractionContext ctx)
         {
-            ctx = BuildContext();
             _candidates.Clear();
 
             var origin = ctx.Origin;
@@ -46,6 +48,16 @@ namespace AlpacasOnFire.Player
                                                       GameTuning.InteractRange * 0.55f,
                                                       OverlapBuffer, ~0, QueryTriggerInteraction.Collide);
             for (int i = 0; i < count; i++) Collect(OverlapBuffer[i]);
+        }
+
+        /// <summary>找目前準心對到、且在這個情境下真的可以互動的物件。唯讀，任何端都可以呼叫。</summary>
+        public IInteractable FindTarget(out InteractionContext ctx)
+        {
+            ctx = BuildContext();
+            CollectCandidates(in ctx);
+
+            var origin = ctx.Origin;
+            var dir = ctx.Direction;
 
             IInteractable best = null;
             int bestPriority = int.MinValue;
@@ -98,6 +110,59 @@ namespace AlpacasOnFire.Player
         {
             var target = FindTarget(out var ctx);
             target?.Interact(in ctx);
+        }
+
+        /// <summary>
+        /// 右鍵（次要互動）的目標。跟 FindTarget 分開找，因為兩者的
+        /// CanInteract 條件不同 —— 同一個物件可能可以按右鍵但不能按 Space，反之亦然。
+        /// 唯讀，任何端都可以呼叫（HUD 提示要用）。
+        /// </summary>
+        public ISecondaryInteractable FindSecondaryTarget(out InteractionContext ctx)
+        {
+            ctx = BuildContext();
+
+            // 手上是持續使用型工具（噴槍、染劑刷）時，右鍵永遠屬於那個工具
+            if (ctx.Held is Items.IHoldTool) return null;
+
+            _candidates.Clear();
+            CollectCandidates(in ctx);
+
+            var origin = ctx.Origin;
+            var dir = ctx.Direction;
+
+            ISecondaryInteractable best = null;
+            int bestPriority = int.MinValue;
+            float bestDist = float.MaxValue;
+
+            foreach (var candidate in _candidates)
+            {
+                if (candidate is not ISecondaryInteractable secondary) continue;
+
+                var anchor = candidate.InteractionAnchor;
+                if (anchor == null) continue;
+
+                var to = anchor.position - origin;
+                float dist = to.magnitude;
+                if (dist > GameTuning.InteractRange + 0.6f) continue;
+                if (dist > 0.05f && Vector3.Dot(to / dist, dir) < 0.2f) continue;
+                if (!secondary.CanSecondaryInteract(in ctx)) continue;
+
+                int p = candidate.InteractionPriority;
+                if (p > bestPriority || (p == bestPriority && dist < bestDist))
+                {
+                    best = secondary;
+                    bestPriority = p;
+                    bestDist = dist;
+                }
+            }
+            return best;
+        }
+
+        /// <summary>右鍵被按下。只在 StateAuthority 上呼叫。</summary>
+        public void TrySecondaryInteract()
+        {
+            var target = FindSecondaryTarget(out var ctx);
+            target?.SecondaryInteract(in ctx);
         }
     }
 }

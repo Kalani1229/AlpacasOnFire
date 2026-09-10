@@ -41,6 +41,33 @@ namespace AlpacasOnFire.Stall
             return stall == null || stall.IsBusinessMode;
         }
 
+        /// <summary>
+        /// **兩個場景並存的關鍵接縫。**
+        ///
+        /// v6 的 Village 場景有 CustomerQueue，交貨要比對站在窗口外的顧客要什麼；
+        /// Stall_Test 沒有它，就 fallback 回既有的 OrderBoard。
+        /// 這一段 fallback 不能省 —— 省了舊場景就賣不出東西。
+        ///
+        /// 回傳 true = 收下了（呼叫端負責消耗衣服）。
+        /// </summary>
+        private static bool RouteDelivery(GarmentSpec spec)
+        {
+            var queue = Npc.CustomerQueue.Instance;
+            if (queue != null && queue.Object != null && queue.Object.IsValid)
+                return queue.TryDeliver(spec);
+
+            return OrderBoard.Instance != null && OrderBoard.Instance.TryDeliver(spec);
+        }
+
+        /// <summary>有沒有人要這件衣服（唯讀，給提示字與丟擲判定用）。</summary>
+        private static bool AnyoneWants(GarmentSpec spec)
+        {
+            var queue = Npc.CustomerQueue.Instance;
+            if (queue != null && queue.Object != null && queue.Object.IsValid)
+                return queue.HasMatch(spec);
+            return OrderBoard.Instance != null;
+        }
+
         public override bool CanInteract(in InteractionContext ctx)
         {
             if (ctx.Held is not GarmentItem) return false;
@@ -64,14 +91,14 @@ namespace AlpacasOnFire.Stall
         /// 跟手動交貨失敗時衣服留在手上是同一個原則，不會憑空消失。
         /// </summary>
         public bool CanAcceptThrown(CarriableItem item)
-            => item is GarmentItem && CanSellNow() && OrderBoard.Instance != null;
+            => item is GarmentItem garment && CanSellNow() && AnyoneWants(garment.Spec);
 
         public bool AcceptThrown(CarriableItem item)
         {
             if (!HasStateAuthority || !CanAcceptThrown(item)) return false;
             if (item is not GarmentItem garment) return false;
 
-            if (!OrderBoard.Instance.TryDeliver(garment.Spec)) return false;
+            if (!RouteDelivery(garment.Spec)) return false;
 
             GameAudio.PlayAt(SfxId.ShipSuccess, transform.position);
             return true;
@@ -83,7 +110,7 @@ namespace AlpacasOnFire.Stall
             if (ctx.Held is not GarmentItem garment) return;
             if (!CanSellNow()) return;
 
-            bool ok = OrderBoard.Instance != null && OrderBoard.Instance.TryDeliver(garment.Spec);
+            bool ok = RouteDelivery(garment.Spec);
 
             // 失敗時衣服留在玩家手上（跟郵箱的既有行為一致：扣款 + 訂單區閃紅）
             if (!ok) return;

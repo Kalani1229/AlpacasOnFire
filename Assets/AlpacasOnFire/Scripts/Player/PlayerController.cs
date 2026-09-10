@@ -157,6 +157,16 @@ namespace AlpacasOnFire.Player
                             _interactor.TryInteract();
                     }
 
+                    // v6：E 拿出／收起隨身剃毛器
+                    if (pressed.IsSet(GameButton.DefaultTool))
+                        _carry.ToggleDefaultTool();
+
+                    // v6：右鍵的次要互動（手提箱選色／切色）。
+                    // 手上拿著 IHoldTool 時 FindSecondaryTarget 會直接回 null，
+                    // 所以拿著噴槍時右鍵永遠是噴漆，不會被準心前方的東西搶走。
+                    if (pressed.IsSet(GameButton.UseTool))
+                        _interactor.TrySecondaryInteract();
+
                     _carry.TickTool(in ctx, input.Buttons.IsSet(GameButton.UseTool), Runner.DeltaTime);
                 }
             }

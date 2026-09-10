@@ -1,6 +1,8 @@
 using System.Collections.Generic;
 using AlpacasOnFire.Core;
 using AlpacasOnFire.Items;
+using AlpacasOnFire.Machines;
+using AlpacasOnFire.Npc;
 using AlpacasOnFire.Stall;
 using Fusion;
 using UnityEditor;
@@ -31,6 +33,9 @@ namespace AlpacasOnFire.EditorTools
             Add(failures, "Machine_Conveyor", () => outElements.Add(BuildConveyor()));
             Add(failures, "Machine_ToolRack", () => BuildToolRacks(outElements));
             Add(failures, "Stall_ServiceBell", () => outElements.Add(BuildServiceBell()));
+            Add(failures, "Npc_WoolNpc", () => outElements.Add(BuildWoolNpc()));
+            Add(failures, "Machine_WeavingMachine", () => outElements.Add(BuildWeavingMachine()));
+            Add(failures, "Machine_MaterialCrate", () => outElements.Add(BuildMaterialCrate()));
             Add(failures, "Level_SuitcaseSpawn", () => outElements.Add(BuildSuitcaseSpawnMarker()));
 
             // 縫紉機／果汁機／人偶要能被擺出來與收回：補一個 DeployHandle 子物件
@@ -75,6 +80,19 @@ namespace AlpacasOnFire.EditorTools
             var light = Prim(PrimitiveType.Sphere, "StateLight", root.transform,
                              new Vector3(0.3f, 0.34f, 0.2f), Vector3.one * 0.11f, lightMat, keepCollider: false);
 
+            // v6：箱體正面三個小色塊，顯示這一場帶了哪三種毛、目前要拿哪一格。
+            // 玩家不用開面板就看得出材料狀況。
+            var slotMat = Mat("M_SuitcaseSlot", PlaceholderPalette.Wool);
+            var colorSlots = new Renderer[SuitcaseItem.ColorSlots];
+            for (int i = 0; i < colorSlots.Length; i++)
+            {
+                var slot = Prim(PrimitiveType.Cube, $"ColorSlot{i}", root.transform,
+                    new Vector3(-0.22f + i * 0.22f, 0.2f, 0.26f),
+                    new Vector3(0.16f, 0.16f, 0.04f), slotMat, keepCollider: false);
+                colorSlots[i] = slot.GetComponent<Renderer>();
+                colorSlots[i].enabled = false;
+            }
+
             // ★ 關鍵：一顆 trigger 碰撞體，讓手提箱「拿在手上時」仍然能被準心選到。
             //   CarriableItem.UpdateColliders() 只會關掉非 trigger 的碰撞體，
             //   所以這顆會一直有效，開箱的 Space 才有東西可以打。
@@ -93,6 +111,7 @@ namespace AlpacasOnFire.EditorTools
             SetRef(item, "_visualRoot", body.transform);
             SetRef(item, "_lidVisual", hinge.transform);
             SetRef(item, "_stateLight", light.GetComponent<Renderer>());
+            SetRefArray(item, "_colorSlotVisuals", colorSlots);
             // _tintTargets 刻意留空：手提箱要保留 prefab 的木箱配色，不跟著 Spec 變色
 
             SetLayerRecursive(root, layer);
@@ -312,6 +331,267 @@ namespace AlpacasOnFire.EditorTools
             };
         }
 
+        // ---------------------------------------------------------------- v6 織布機
+
+        /// <summary>
+        /// 織布機。機體上有**兩格色塊**：第一格主色、第二格點綴色 ——
+        /// 玩家要能不看 UI 就確認「我放了什麼、順序對不對」，
+        /// 因為放入順序決定成品是「紅底白紋」還是「白底紅紋」。
+        /// </summary>
+        private static GameCatalog.ElementEntry BuildWeavingMachine()
+        {
+            var bodyMat = Mat("M_WeavingMachine", new Color(0.55f, 0.40f, 0.22f));
+            var slotMat = Mat("M_WeaveSlot", PlaceholderPalette.Wool);
+            var lightMat = Mat("M_StatusLight", new Color(0.3f, 0.9f, 0.4f));
+
+            var trackMat  = Mat("M_WeaveTrack",  new Color(0.14f, 0.14f, 0.16f));
+            var targetMat = Mat("M_WeaveTarget", new Color(0.33f, 0.33f, 0.38f));
+            var fillMat   = Mat("M_WeaveFill",   new Color(0.95f, 0.75f, 0.15f));
+            var tickMat   = Mat("M_WeaveTick",   new Color(1f, 1f, 1f));
+
+            float h = GameTuning.MachineHeight;
+            float w = GameTuning.MachineFootprint;
+
+            var root = new GameObject("Machine_WeavingMachine");
+
+            var body = Prim(PrimitiveType.Cube, "Body", root.transform,
+                new Vector3(0f, h * 0.5f, 0f), new Vector3(w, h, w), bodyMat);
+
+            // 兩格毛槽並排在機台頂面，左邊是主色、右邊是點綴色
+            var slots = new Renderer[2];
+            for (int i = 0; i < slots.Length; i++)
+            {
+                var sl = Prim(PrimitiveType.Sphere, $"WoolSlot{i}", root.transform,
+                    new Vector3(-0.28f + i * 0.56f, h + 0.14f, 0.1f),
+                    Vector3.one * 0.26f, slotMat, keepCollider: false);
+                slots[i] = sl.GetComponent<Renderer>();
+                slots[i].enabled = false;
+            }
+
+            var status = Prim(PrimitiveType.Sphere, "StatusLight", root.transform,
+                new Vector3(0.45f, h + 0.12f, -0.45f), Vector3.one * 0.18f, lightMat, keepCollider: false);
+
+            // ---- 進度條：自己畫，不用 MachineBase 的預設 ----
+            //
+            // 四段疊在一起，全部掛在 Track 底下：
+            //   Track  底色，永遠滿格（= 雙色秒數）
+            //   Target 目前的目標終點（單色停在刻度線、雙色推到滿格）
+            //   Fill   已經織了多久，只前進不倒退
+            //   Tick   單色死線的刻度，固定在 4/7
+            //
+            // WeavingMachine.SetBarWidth() 用 BarLeft = -0.5、BarWidth = 1.0 的本地座標，
+            // 所以 Track 的 localScale.x 要剛好是 1。
+            var track = Prim(PrimitiveType.Cube, "WeaveTrack", root.transform,
+                new Vector3(0f, h + 0.30f, -0.6f), new Vector3(1f, 0.09f, 0.09f),
+                trackMat, keepCollider: false);
+
+            var target = Prim(PrimitiveType.Cube, "WeaveTarget", track.transform,
+                new Vector3(0f, 0f, -0.02f), new Vector3(1f, 0.8f, 0.8f),
+                targetMat, keepCollider: false);
+
+            var fill = Prim(PrimitiveType.Cube, "WeaveFill", track.transform,
+                new Vector3(0f, 0f, -0.04f), new Vector3(1f, 0.62f, 0.62f),
+                fillMat, keepCollider: false);
+
+            var tick = Prim(PrimitiveType.Cube, "WeaveTick", track.transform,
+                new Vector3(0f, 0f, -0.06f), new Vector3(0.02f, 1.5f, 1.5f),
+                tickMat, keepCollider: false);
+
+            track.SetActive(false);   // 只有織製中才顯示
+
+            // 操作面在背面（-Z），跟其他機台一致
+            var interact = Empty("InteractionAnchor", root.transform, new Vector3(0f, h * 0.6f, -0.75f));
+            var output = Empty("OutputAnchor", root.transform, new Vector3(0f, h + 0.25f, -0.85f));
+
+            root.AddComponent<NetworkObject>();
+            var m = root.AddComponent<WeavingMachine>();
+            SetRef(m, "_interactionAnchor", interact.transform);
+            SetRef(m, "_outputAnchor", output.transform);
+            SetRef(m, "_statusLight", status.GetComponent<Renderer>());
+            SetRef(m, "_bodyRenderer", body.GetComponent<Renderer>());
+            SetRefArray(m, "_woolSlotVisuals", slots);
+
+            // **_progressBar 刻意留空** —— 織布機自己畫進度條，
+            // 留空會讓 MachineBase.Render() 跳過預設畫法，其他機台完全不受影響。
+            SetRef(m, "_weaveTrack",  track.transform);
+            SetRef(m, "_weaveTarget", target.transform);
+            SetRef(m, "_weaveFill",   fill.transform);
+            SetRef(m, "_weaveTick",   tick.transform);
+
+            SetEnum(m, "_outputPattern", (int)PatternType.TShirt);
+
+            AddDeployHandle(root, LevelElementType.WeavingMachine,
+                            new Vector3(0f, h * 0.5f, 0f), new Vector3(w * 1.25f, h, w * 1.25f));
+
+            var prefab = SavePrefab(root, "Machine_WeavingMachine");
+            return new GameCatalog.ElementEntry
+            {
+                type = LevelElementType.WeavingMachine,
+                prefab = prefab,
+            };
+        }
+
+        // ---------------------------------------------------------------- v6 素材箱
+
+        /// <summary>
+        /// 素材箱。**不在 loadout 的裝備清單裡** —— 它是選色之後由
+        /// StallManager.SyncCrates() 動態生出來的，所以這裡只負責做出 prefab。
+        ///
+        /// 箱體不設固定顏色：執行期由 MaterialCrate 依裝載的顏色染色。
+        /// </summary>
+        private static GameCatalog.ElementEntry BuildMaterialCrate()
+        {
+            var bodyMat = Mat("M_MaterialCrate", PlaceholderPalette.Wool);
+            var frameMat = Mat("M_MaterialCrateFrame", new Color(0.38f, 0.29f, 0.20f));
+            var fillMat = Mat("M_MaterialCrateFill", new Color(0.95f, 0.95f, 0.92f));
+
+            var root = new GameObject("Machine_MaterialCrate");
+            float w = GameTuning.MachineFootprint * 0.82f;
+            const float h = 0.9f;
+
+            // 箱體：執行期會被染成裝載的顏色，所以這裡用白色當底
+            var body = Prim(PrimitiveType.Cube, "Body", root.transform,
+                new Vector3(0f, h * 0.5f, 0f), new Vector3(w, h, w), bodyMat);
+
+            // 木框讓它看起來像箱子而不是一坨色塊
+            Prim(PrimitiveType.Cube, "RimTop", root.transform, new Vector3(0f, h + 0.03f, 0f),
+                 new Vector3(w * 1.08f, 0.08f, w * 1.08f), frameMat, keepCollider: false);
+            Prim(PrimitiveType.Cube, "RimBottom", root.transform, new Vector3(0f, 0.04f, 0f),
+                 new Vector3(w * 1.08f, 0.08f, w * 1.08f), frameMat, keepCollider: false);
+
+            // 剩餘量條：貼在箱子側面，沿 Y 縮放
+            var fill = Prim(PrimitiveType.Cube, "FillBar", root.transform,
+                new Vector3(0f, h * 0.5f, -w * 0.5f - 0.04f),
+                new Vector3(w * 0.5f, h * 0.8f, 0.05f), fillMat, keepCollider: false);
+            fill.SetActive(false);
+
+            var woolAnchor = Empty("WoolAnchor", root.transform, new Vector3(0f, h + 0.2f, 0f));
+            var interact = Empty("InteractionAnchor", root.transform, new Vector3(0f, h * 0.7f, 0f));
+
+            root.AddComponent<NetworkObject>();
+            var crate = root.AddComponent<MaterialCrate>();
+            SetRef(crate, "_interactionAnchor", interact.transform);
+            SetRef(crate, "_bodyRenderer", body.GetComponent<Renderer>());
+            SetRef(crate, "_fillBar", fill.transform);
+            SetRef(crate, "_woolAnchor", woolAnchor.transform);
+
+            AddDeployHandle(root, LevelElementType.MaterialCrate,
+                            new Vector3(0f, h * 0.5f, 0f), new Vector3(w * 1.25f, h, w * 1.25f));
+
+            var prefab = SavePrefab(root, "Machine_MaterialCrate");
+            return new GameCatalog.ElementEntry
+            {
+                type = LevelElementType.MaterialCrate,
+                prefab = prefab,
+            };
+        }
+
+        // ---------------------------------------------------------------- v6 羊毛 NPC
+
+        /// <summary>
+        /// 會走動、身上長毛的 NPC。
+        ///
+        /// **移動用 NetworkCharacterController**，跟玩家 prefab 一樣 ——
+        /// 不可以用裸 CharacterController + NetworkTransform，那在 Fusion 重模擬時
+        /// 會抖動並瞬間大步移動（玩家身上已經踩過一次）。
+        /// 注意 NCC 本身就是 NetworkTRSP，**不要再掛 NetworkTransform**，兩者會打架。
+        ///
+        /// 它不是「裝備」，所以**沒有 DeployHandle** —— 不進網格、不能被搬動、
+        /// 也不會被收攤收走。
+        /// </summary>
+        private static GameCatalog.ElementEntry BuildWoolNpc()
+        {
+            var bodyMat = Mat("M_NpcBody", PlaceholderPalette.Wool);
+            var faceMat = Mat("M_NpcFace", new Color(0.3f, 0.3f, 0.32f));
+            var tuftMat = Mat("M_NpcTuft", PlaceholderPalette.Wool);
+
+            var root = new GameObject("Npc_WoolNpc");
+
+            // 身體比玩家矮胖一點，一眼分得出誰是玩家誰是 NPC
+            const float height = 1.35f;
+            const float radius = 0.34f;
+
+            var body = Prim(PrimitiveType.Capsule, "Body", root.transform,
+                new Vector3(0f, height * 0.5f, 0f),
+                new Vector3(radius * 2f, height * 0.5f, radius * 2f), bodyMat, keepCollider: false);
+
+            Prim(PrimitiveType.Cube, "Snout", body.transform, new Vector3(0f, 0.5f, 0.6f),
+                 new Vector3(0.4f, 0.3f, 0.5f), faceMat, keepCollider: false);
+
+            // 三撮毛，剩幾份就顯示幾撮
+            var tufts = new Renderer[GameTuning.NpcFleeceMax];
+            for (int i = 0; i < tufts.Length; i++)
+            {
+                float angle = -35f + i * 35f;
+                var offset = Quaternion.Euler(0f, angle, 0f) * new Vector3(0f, 0f, 0.28f);
+                var tuft = Prim(PrimitiveType.Sphere, $"Tuft{i}", root.transform,
+                    new Vector3(offset.x, height + 0.1f, offset.z),
+                    Vector3.one * 0.34f, tuftMat, keepCollider: false);
+                tufts[i] = tuft.GetComponent<Renderer>();
+            }
+
+            var interact = Empty("InteractionAnchor", root.transform, new Vector3(0f, height * 0.75f, 0f));
+
+            var cc = root.AddComponent<CharacterController>();
+            cc.height = height;
+            cc.radius = radius;
+            cc.center = new Vector3(0f, height * 0.5f, 0f);
+            cc.slopeLimit = 50f;
+            cc.stepOffset = 0.3f;
+            cc.skinWidth = 0.03f;
+
+            root.AddComponent<NetworkObject>();
+
+            var ncc = root.AddComponent<NetworkCharacterController>();
+            ncc.gravity      = -GameTuning.NpcGravity;
+            ncc.acceleration = 20f;
+            ncc.braking      = 20f;
+            ncc.maxSpeed     = GameTuning.NpcWanderSpeed;
+            ncc.rotationSpeed = 8f;
+
+            var npc = root.AddComponent<WoolNpc>();
+            SetRef(npc, "_interactionAnchor", interact.transform);
+            SetRef(npc, "_bodyRenderer", body.GetComponent<Renderer>());
+            SetRefArray(npc, "_fleeceTufts", tufts);
+
+            // ---- 顧客模式：同一個 prefab，被徵召時才啟用 ----
+            // 設計文件明講顧客「就是場上那群羊」，所以不做第二種 prefab。
+            var signMat = Mat("M_CustomerSign", new Color(0.96f, 0.94f, 0.88f));
+            var barMat = Mat("M_CustomerPatience", new Color(0.4f, 0.9f, 0.5f));
+
+            var signRoot = Empty("CustomerSign", root.transform, new Vector3(0f, height + 0.75f, 0f));
+
+            Prim(PrimitiveType.Cube, "Board", signRoot.transform, Vector3.zero,
+                 new Vector3(0.86f, 0.5f, 0.06f), signMat, keepCollider: false);
+
+            var swatches = new Renderer[2];
+            for (int i = 0; i < swatches.Length; i++)
+            {
+                var sw = Prim(PrimitiveType.Cube, $"Want{i}", signRoot.transform,
+                    new Vector3(-0.2f + i * 0.4f, 0.05f, -0.05f),
+                    new Vector3(0.3f, 0.3f, 0.04f), signMat, keepCollider: false);
+                swatches[i] = sw.GetComponent<Renderer>();
+            }
+
+            var patience = Prim(PrimitiveType.Cube, "PatienceBar", signRoot.transform,
+                new Vector3(0f, -0.2f, -0.05f), new Vector3(0.78f, 0.07f, 0.04f), barMat,
+                keepCollider: false);
+
+            signRoot.SetActive(false);
+
+            var customer = root.AddComponent<Customer>();
+            SetRef(customer, "_signRoot", signRoot.transform);
+            SetRefArray(customer, "_signSwatches", swatches);
+            SetRef(customer, "_patienceBar", patience.transform);
+
+            var prefab = SavePrefab(root, "Npc_WoolNpc");
+            return new GameCatalog.ElementEntry
+            {
+                type = LevelElementType.WoolNpc,
+                prefab = prefab,
+            };
+        }
+
         // ---------------------------------------------------------------- 手提箱生成點
 
         private static GameCatalog.ElementEntry BuildSuitcaseSpawnMarker()
@@ -398,20 +678,9 @@ namespace AlpacasOnFire.EditorTools
             var anchor = Empty("HandleAnchor", handle.transform, center + Vector3.up * (size.y * 0.35f));
 
             var dev = handle.AddComponent<DeployableDevice>();
-            SetEnum(dev, "_deviceType", EnumIndexOf(type));
+            SetEnum(dev, "_deviceType", (int)type);
             SetRef(dev, "_interactionAnchor", anchor.transform);
         }
 
-        /// <summary>
-        /// SerializedProperty.enumValueIndex 要的是「在列舉裡的第幾個」，不是列舉的數值。
-        /// LevelElementType 目前剛好是連號的，但為了之後有人插值仍然正確，這裡照定義順序找。
-        /// </summary>
-        private static int EnumIndexOf(LevelElementType type)
-        {
-            var values = (LevelElementType[])System.Enum.GetValues(typeof(LevelElementType));
-            for (int i = 0; i < values.Length; i++)
-                if (values[i] == type) return i;
-            return 0;
-        }
     }
 }

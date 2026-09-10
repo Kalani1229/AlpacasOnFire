@@ -181,6 +181,63 @@ namespace AlpacasOnFire.Core
         public const float StallDurationSeconds    = 180f;   // 一場營業 3 分鐘（＝ LevelDurationSeconds）
         public const int   StallStartingCapital    = 0;      // 資本額起始值
 
+        // ================= v6 羊駝村（以上既有數值一個都沒有改）=================
+
+        // ---------- 會走動的羊毛 NPC ----------
+        public const float NpcWanderSpeed        = 1.6f;   // 閒晃速度 m/s
+        public const float NpcWanderRadius       = 18f;    // 以出生點為圓心的活動範圍
+        public const float NpcWanderPauseMin     = 1.5f;   // 走到目標後站著發呆的最短時間
+        public const float NpcWanderPauseMax     = 4f;
+        public const float NpcFleeSpeed          = 4.5f;   // 被剃之後逃跑速度（比玩家的 5.0 慢一點，追得到）
+        public const float NpcFleeSeconds        = 4f;
+        public const int   NpcFleeceMax          = 3;      // 身上最多 3 份毛
+        public const float NpcFleeceRegenSeconds = 8f;     // 每 8 秒長回 1 份
+        public const float NpcShearRange         = 2.2f;   // 剃毛的互動距離
+        public const float NpcArriveThreshold    = 0.6f;   // 走到多近算抵達目標點
+        public const float NpcGravity            = 20f;    // 給 NetworkCharacterController 用
+
+        // ---------- 全隊共用背包 ----------
+        public const int   StashCapacityPerColor = 20;
+
+        // ---------- 素材箱 ----------
+        // 沒有「一箱幾份」的上限：開張時該色背包有多少就裝多少。
+        // 這個值只是剩餘量條的滿格參考，不是容量限制。
+        public const int   CrateFillBarReference = 12;
+
+        // ---------- 織布機（批 B）----------
+        // 織布機是一道**限時決策**：放下第一份毛就開始織，想做雙色的話
+        // 第二份毛必須在單色織完之前送到。所以雙色秒數一定要大於單色，
+        // 這是玩法前提，不是可調的美術數字。
+        public const float WeaveSingleSeconds    = 4f;   // 單色衣服
+        public const float WeaveDoubleSeconds    = 7f;   // 雙色衣服
+        public const int   WeaveMaxWool          = 2;
+
+        // 換目標時長時，剩餘時間的下限。
+        // 沒有這個下限的話，「剛好在最後一瞬間塞進第二份毛」會變成瞬間完成，
+        // 玩家看不到那件衣服是怎麼變成雙色的。
+        public const float WeaveRetargetFloor    = 0.2f;
+
+        // ---------- 顧客（批 B）----------
+        public const int   CustomerMaxConcurrent   = 3;
+        public const float CustomerPatienceSeconds = 45f;
+        public const float CustomerIntervalSeconds = 12f;
+        public const float CustomerWalkSpeed       = 2.2f;
+        public const int   CustomerLeavePenalty    = 30;   // 等太久走掉的扣款
+
+        /// <summary>
+        /// 羊毛價格。衣服售價 = 主色 + 點綴色相加；單色衣服就只算一份。
+        /// 集中在這裡，不要散到各處去。
+        /// </summary>
+        public static int WoolPrice(DyeColorType c) => c switch
+        {
+            DyeColorType.White  => 10,
+            DyeColorType.Yellow => 15,
+            DyeColorType.Green  => 20,
+            DyeColorType.Blue   => 30,
+            DyeColorType.Red    => 45,
+            _                   => 10,
+        };
+
         public static int StarsFor(int money)
         {
             if (money >= Star3Threshold) return 3;

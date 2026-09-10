@@ -23,6 +23,9 @@ namespace AlpacasOnFire.Stall
         [Networked] public int PendingTypeRaw { get; set; }
         [Networked] public int PendingFacing { get; set; }
 
+        /// <summary>型別專屬參數（素材箱的顏色）。放下去時要原樣帶回去。</summary>
+        [Networked] public int PendingVariant { get; set; }
+
         /// <summary>拿起來之前它在哪一格。Q 取消時要放回這裡。</summary>
         [Networked] public NetworkBool HasOrigin { get; set; }
         [Networked] public int OriginCellX { get; set; }
@@ -59,12 +62,14 @@ namespace AlpacasOnFire.Stall
         /// 進入放置預覽。originCell 是它被拿起來之前的格子（Q 取消時放回去）。
         /// 只在 StateAuthority 呼叫。
         /// </summary>
-        public void BeginPlacement(LevelElementType type, int facing, int originCellX, int originCellZ)
+        public void BeginPlacement(LevelElementType type, int facing, int originCellX, int originCellZ,
+                                   int variant = 0)
         {
             if (!HasStateAuthority) return;
 
             PendingTypeRaw = (int)type;
             PendingFacing = StallGrid.NormalizeFacing(facing);
+            PendingVariant = variant;
 
             HasOrigin = true;
             OriginCellX = originCellX;
@@ -77,6 +82,7 @@ namespace AlpacasOnFire.Stall
             if (!HasStateAuthority) return;
             PendingTypeRaw = 0;
             PendingFacing = 0;
+            PendingVariant = 0;
             HasOrigin = false;
         }
 
@@ -95,13 +101,13 @@ namespace AlpacasOnFire.Stall
 
             if (stall != null && HasOrigin && stall.MatDeployed)
             {
-                if (!stall.TryPlaceDevice(type, OriginCellX, OriginCellZ, OriginFacing, out _))
+                if (!stall.TryPlaceDevice(type, OriginCellX, OriginCellZ, OriginFacing, out _, PendingVariant))
                 {
                     StallGrid.RotatedFootprint(StallCatalog.Footprint(type), OriginFacing,
                                                out int w, out int d);
                     if (stall.BuildOccupancy().TryFindFree(w, d, out int cx, out int cz))
                     {
-                        stall.TryPlaceDevice(type, cx, cz, OriginFacing, out _);
+                        stall.TryPlaceDevice(type, cx, cz, OriginFacing, out _, PendingVariant);
                         Debug.LogWarning($"[擺攤] 取消放置時原格 ({OriginCellX},{OriginCellZ}) 已被佔用，" +
                                          $"{type} 改放到 ({cx},{cz})。");
                     }
@@ -165,7 +171,7 @@ namespace AlpacasOnFire.Stall
                 return;
             }
 
-            if (!stall.TryPlaceDevice(PendingType, cx, cz, PendingFacing, out var placeResult))
+            if (!stall.TryPlaceDevice(PendingType, cx, cz, PendingFacing, out var placeResult, PendingVariant))
             {
                 RPC_PlacementRejected(StallGeometry.Describe(placeResult));
                 return;

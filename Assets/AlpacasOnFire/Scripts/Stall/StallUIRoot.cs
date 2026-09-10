@@ -18,6 +18,8 @@ namespace AlpacasOnFire.Stall
 
         public StallHud Hud { get; private set; }
         public StallResultsPanel Results { get; private set; }
+        public StashHud Stash { get; private set; }
+        public SuitcaseColorPanel ColorPanel { get; private set; }
 
         private void Awake()
         {
@@ -38,6 +40,13 @@ namespace AlpacasOnFire.Stall
             // 裝備選單已經整個移除：開箱時所有裝備就在場上了，沒有東西要選。
             Hud = gameObject.AddComponent<StallHud>();
             Results = gameObject.AddComponent<StallResultsPanel>();
+
+            // v6 共用背包的色塊列。沒有 TeamStash 的場景（例如 Stall_Test）它會自己隱藏，
+            // 所以掛在這裡不會影響舊場景。
+            Stash = gameObject.AddComponent<StashHud>();
+
+            // v6 選色面板。沒有料倉的場景永遠不會打開它，掛著不影響舊場景。
+            ColorPanel = gameObject.AddComponent<SuitcaseColorPanel>();
         }
 
         private void OnDestroy()

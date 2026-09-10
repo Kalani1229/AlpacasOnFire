@@ -90,6 +90,47 @@ namespace AlpacasOnFire.Player
             return item;
         }
 
+        // ---------------- 隨身工具（E）----------------
+
+        /// <summary>
+        /// v6：剃毛器改成隨身預設工具。按 E 生一把到手上，再按一次收起來。
+        ///
+        /// 收起來是 Despawn 不是丟在地上 —— 它是「隨身」工具，不該在世界上留下一堆。
+        /// 手上有別的東西時不做事，但要給提示，不能靜默失敗（玩家會以為按鍵壞了）。
+        ///
+        /// 只在 StateAuthority 呼叫。
+        /// </summary>
+        public void ToggleDefaultTool()
+        {
+            if (!HasStateAuthority) return;
+
+            var held = Held;
+
+            // 手上已經是剃毛器 -> 收起來
+            if (held != null && held.Kind == ItemKind.Shears)
+            {
+                ConsumeHeld();
+                GameAudio.PlayAt(SfxId.Drop, transform.position);
+                return;
+            }
+
+            if (HasItem)
+            {
+                RPC_DefaultToolBlocked();
+                return;
+            }
+
+            var tool = ItemFactory.SpawnIntoHands(Runner, ItemKind.Shears, default, _player);
+            if (tool == null)
+                Debug.LogError("[v6] 生成剃毛器失敗：GameCatalog 裡沒有 ItemKind.Shears 的 prefab。");
+        }
+
+        [Rpc(RpcSources.StateAuthority, RpcTargets.InputAuthority)]
+        private void RPC_DefaultToolBlocked()
+        {
+            Stall.StallManager.LocalNotice("先空出手才能拿剃毛器");
+        }
+
         // ---------------- 丟出（Q）----------------
 
         /// <summary>Q 只負責丟出。接住已經移到互動鍵（Space／左鍵）與自動接住。</summary>

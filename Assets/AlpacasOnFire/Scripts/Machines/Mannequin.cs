@@ -96,7 +96,14 @@ namespace AlpacasOnFire.Machines
             if (Worn.Color == color) return;
 
             var spec = Worn;
+
+            // 單色的衣服被塗成別的顏色之後，點綴色要跟著走 ——
+            // 不然主色變紅、點綴色停在原本的白，這件衣服會被當成「紅底白紋」，
+            // 跟訂單要的純紅 T 恤比對不起來（v6 之前 accent 不存在，沒有這個問題）。
+            bool wasSingleColour = !spec.HasAccent;
             spec.Color = color;
+            if (wasSingleColour) spec.AccentColor = color;
+
             Worn = spec;
 
             GlowColorRaw = (int)color;

@@ -60,6 +60,24 @@ namespace AlpacasOnFire.Interaction
     }
 
     /// <summary>
+    /// 右鍵（次要互動）。跟 IInteractable 分開，因為不是每個東西都需要第二種操作。
+    ///
+    /// 分派規則（在 PlayerController 裡）：**手上拿著 IHoldTool 時不觸發**。
+    /// 理由是右鍵本來就是「持續使用手上的工具」（噴槍、染劑刷），
+    /// 拿著那些東西時右鍵永遠該是工具的動作，不能被準心前方的東西搶走。
+    /// 反過來說，空手或拿著羊毛時右鍵一定打得到次要互動。
+    ///
+    /// 跟 IInteractable 一樣：CanSecondaryInteract / GetSecondaryPrompt 必須唯讀，
+    /// SecondaryInteract 只會在 StateAuthority 上被呼叫。
+    /// </summary>
+    public interface ISecondaryInteractable
+    {
+        bool CanSecondaryInteract(in InteractionContext ctx);
+        string GetSecondaryPrompt(in InteractionContext ctx);
+        void SecondaryInteract(in InteractionContext ctx);
+    }
+
+    /// <summary>
     /// 可以被穿上衣服的對象：人偶與隊友都實作它。
     /// 噴槍與飾品都只認這個介面，不管對方是人偶還是玩家。
     /// </summary>

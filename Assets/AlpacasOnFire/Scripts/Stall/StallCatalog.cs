@@ -13,21 +13,14 @@ namespace AlpacasOnFire.Stall
     public static class StallCatalog
     {
         /// <summary>
-        /// 手提箱的完整內容。開箱時**全部一次彈出**，沒有選單、沒有取得流程。
-        ///
-        /// 剃毛器與噴槍是手持工具，用「工具架」的形式進網格 ——
-        /// 這樣每一台裝備都佔一格、都能被記進佈局、都能用同一套方式拿起來重擺。
+        /// 目前這一場用哪一套 loadout。**預設是 Classic** ——
+        /// 什麼都不設定時（Stall_Test）行為跟拆分前完全一樣。
+        /// 由 StallManager.Spawned() 依場景設定切換。
         /// </summary>
-        public static readonly LevelElementType[] Devices =
-        {
-            LevelElementType.ToolRackShears,
-            LevelElementType.SewingMachine,
-            LevelElementType.Juicer,
-            LevelElementType.Mannequin,
-            LevelElementType.DeliveryCounter,
-            LevelElementType.Conveyor,
-            LevelElementType.Conveyor,   // 兩條：同方向擺在一起會自動串成一條長線
-        };
+        public static StallLoadout Active { get; set; } = StallLoadout.Classic;
+
+        /// <summary>手提箱的完整內容。開箱時**全部一次彈出**，沒有選單。</summary>
+        public static LevelElementType[] Devices => Active.Devices;
 
         /// <summary>佈局陣列的容量。留了餘裕，之後加裝備不用改同步結構。</summary>
         public const int MaxSlots = 16;
@@ -60,6 +53,8 @@ namespace AlpacasOnFire.Stall
             LevelElementType.Mannequin        => "人偶",
             LevelElementType.DeliveryCounter  => "交貨窗口",
             LevelElementType.Conveyor         => "輸送帶",
+            LevelElementType.WeavingMachine   => "織布機",
+            LevelElementType.MaterialCrate    => "素材箱",
             _                                 => type.ToString(),
         };
 
@@ -67,6 +62,7 @@ namespace AlpacasOnFire.Stall
         public static string FacingMeaning(LevelElementType type) => type switch
         {
             LevelElementType.Conveyor        => "輸送方向",
+            LevelElementType.MaterialCrate   => "開口面向（隨意）",
             LevelElementType.DeliveryCounter => "窗口面向（顧客站這邊）",
             _                                => "操作面在背面",
         };
@@ -92,6 +88,9 @@ namespace AlpacasOnFire.Stall
         public static Vector3 GhostSize(LevelElementType type) => type switch
         {
             LevelElementType.ToolRackShears   => new Vector3(0.7f, 1.0f, 0.55f),
+            LevelElementType.MaterialCrate    => new Vector3(GameTuning.MachineFootprint * 0.85f,
+                                                            0.9f,
+                                                            GameTuning.MachineFootprint * 0.85f),
             LevelElementType.Conveyor => new Vector3(GameTuning.ConveyorWidth,
                                                     GameTuning.ConveyorHeight,
                                                     GameTuning.ConveyorLength),
@@ -112,52 +111,37 @@ namespace AlpacasOnFire.Stall
             LevelElementType.Mannequin        => PlaceholderPalette.Mannequin,
             LevelElementType.DeliveryCounter  => PlaceholderPalette.Mailbox,
             LevelElementType.Conveyor         => PlaceholderPalette.BoxDispenser,
+            LevelElementType.WeavingMachine   => PlaceholderPalette.SewingMachine,
+            LevelElementType.MaterialCrate    => PlaceholderPalette.Box,
             _                                 => Color.white,
         };
 
         // ---------------- 預設佈局 ----------------
 
         /// <summary>
-        /// 第一次開箱用的預設佈局（8 x 8 格，(0,0) 在左後角，z 往前 = 顧客那一側）。
-        ///
-        /// 這個排法是照白色 T-shirt 的動線設計的，開箱就能直接跑通：
-        ///
-        ///     z=6                    [交貨窗口]
-        ///     z=5                    [輸送帶↑]
-        ///     z=4                    [輸送帶↑]
-        ///     z=3   [果汁機]         [縫紉機]                    [人偶]
-        ///     z=2                    [剃毛器架]
-        ///           x=2              x=3                        x=5
-        ///
-        /// 剃毛 -> 縫紉機 -> 縫紉機自動把成品送上輸送帶 -> 兩條輸送帶接力送到交貨窗口。
-        /// 染色支線（果汁機榨出顏料 -> 拿去刷人偶身上的衣服）掛在旁邊，不擋主線，
-        /// 而且刻意不跟輸送帶正交相鄰，免得染劑罐被自動送到交貨窗口去。
+        /// 第一次開箱用的預設佈局。實際內容看 StallLoadout ——
+        /// 兩套 loadout 各有自己的排法，這裡只是轉接。
         /// </summary>
-        public static readonly StallSlotRecord[] DefaultLayout =
-        {
-            StallSlotRecord.Create(LevelElementType.DeliveryCounter,  3, 6, (int)StallFacing.North),
-            StallSlotRecord.Create(LevelElementType.Conveyor,         3, 5, (int)StallFacing.North),
-            StallSlotRecord.Create(LevelElementType.Conveyor,         3, 4, (int)StallFacing.North),
-            StallSlotRecord.Create(LevelElementType.SewingMachine,    3, 3, (int)StallFacing.North),
-            StallSlotRecord.Create(LevelElementType.ToolRackShears,   3, 2, (int)StallFacing.North),
-            StallSlotRecord.Create(LevelElementType.Juicer,           2, 3, (int)StallFacing.East),
-            StallSlotRecord.Create(LevelElementType.Mannequin,        5, 3, (int)StallFacing.North),
-        };
+        public static StallSlotRecord[] DefaultLayout => Active.DefaultLayout;
 
         /// <summary>
         /// 襯布一定放得下全部裝備嗎。規格要求「不做裝不下就留在箱子裡的處理」，
         /// 所以這是一個必須永遠成立的前提 —— 不成立就是設計錯了，要在建置時就抓出來。
         /// </summary>
         public static bool MatFitsAllDevices(out int required, out int available)
+            => MatFits(Active, out required, out available);
+
+        /// <summary>指定 loadout 放不放得下。診斷選單會對兩套各跑一次。</summary>
+        public static bool MatFits(StallLoadout loadout, out int required, out int available)
         {
             required = 0;
-            foreach (var type in Devices)
+            foreach (var type in loadout.Devices)
             {
                 var fp = Footprint(type);
                 required += fp.x * fp.y;
             }
             available = StallGrid.CellCount;
-            return required <= available && Devices.Length <= MaxSlots;
+            return required <= available && loadout.Devices.Length <= MaxSlots;
         }
     }
 }

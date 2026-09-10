@@ -20,6 +20,9 @@ EditorBuildSettings:
   - enabled: 1
     path: Assets/AlpacasOnFire/Scenes/Stall_Test.unity
     guid: 447e7d666a6024c1f89b5cab360115e0
+  - enabled: 1
+    path: Assets/AlpacasOnFire/Scenes/Village_Test.unity
+    guid: 5d092c4395d7b4031adfafdd1395f86e
   m_configObjects:
     com.unity.input.settings.actions: {fileID: -944628639613478452, guid: 052faaac586de48259a63d0c4782560b, type: 3}
   m_UseUCBPForAssetBundles: 0

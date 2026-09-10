@@ -104,6 +104,33 @@ namespace AlpacasOnFire.Machines
             GameAudio.PlayAt(SfxId.MachineStart, transform.position);
         }
 
+        /// <summary>
+        /// 換一個目標總時長，但**已經過的時間算數**。只在 StateAuthority 呼叫。
+        ///
+        /// 織布機用它做「中途加第二份毛」：目標從單色 4 秒改成雙色 7 秒，
+        /// 第 3 秒放進去的話還要 4 秒，而不是重新跑 7 秒。
+        ///
+        /// 剩餘時間有下限（WeaveRetargetFloor）——
+        /// 不然剛好在最後一瞬間塞進第二份毛會變成瞬間完成，
+        /// 玩家看不到那件衣服是怎麼變成雙色的。
+        ///
+        /// 這是純新增的方法，沒有任何既有機台會呼叫它。
+        /// </summary>
+        protected void RetargetProcess(float newTotalSeconds)
+        {
+            if (!HasStateAuthority || !Processing) return;
+
+            float elapsed = ProcessDuration - (ProcessTimer.RemainingTime(Runner) ?? 0f);
+            float remaining = Mathf.Max(GameTuning.WeaveRetargetFloor, newTotalSeconds - elapsed);
+
+            ProcessDuration = newTotalSeconds;
+            ProcessTimer = TickTimer.CreateFromSeconds(Runner, remaining);
+        }
+
+        /// <summary>已經織了多久（秒）。進度條自己畫的機台會用到。</summary>
+        public float ElapsedSeconds =>
+            Processing ? Mathf.Max(0f, ProcessDuration - (ProcessTimer.RemainingTime(Runner) ?? 0f)) : 0f;
+
         public override void FixedUpdateNetwork()
         {
             if (!HasStateAuthority || !Processing) return;
