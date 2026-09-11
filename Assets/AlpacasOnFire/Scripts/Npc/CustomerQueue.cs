@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using AlpacasOnFire.Core;
 using AlpacasOnFire.Machines;
 using AlpacasOnFire.Orders;
+using AlpacasOnFire.Player;
 using AlpacasOnFire.Stall;
 using Fusion;
 using UnityEngine;
@@ -206,6 +207,41 @@ namespace AlpacasOnFire.Npc
 
                 if (!_availableColors.Contains(crate.Color)) _availableColors.Add(crate.Color);
             }
+
+            // 白毛（羊駝毛）永遠不在素材箱裡 —— 它是玩家互相剃出來的現場產物。
+            // 只掃箱子的話白色永遠不算「做得出來」，白色訂單就一張都不會生成。
+            if (CanShearForWhite() && !_availableColors.Contains(DyeColorType.White))
+                _availableColors.Add(DyeColorType.White);
+        }
+
+        /// <summary>
+        /// 現在有沒有白毛的來源。
+        ///
+        /// 正式玩法的條件是「場上至少有兩隻羊駝」：不能剃自己，所以單人場次
+        /// 白毛無解，這時候生白色訂單就違反了「永遠不會有無解訂單」這條保證。
+        ///
+        /// 不看身上還剩幾份毛 —— 毛每 6 秒長回一份，等一下就有了，
+        /// 拿瞬間的存量當條件會讓白色訂單忽有忽無。
+        ///
+        /// **Editor 與開發版例外：單人也算有來源。** 那兩種組建下
+        /// DebugItemSpawner 是存在的，按數字鍵 1 就生得出白毛，所以白色訂單
+        /// 解得掉、也才測得到整條白色流程。正式版沒有那個產生器，就回到兩人條件。
+        /// </summary>
+        private static bool CanShearForWhite()
+        {
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+            // 除錯鍵「1」＝白毛，單人也拿得到，所以白色訂單不是無解訂單
+            return true;
+#else
+            int alpacas = 0;
+            for (int i = 0; i < PlayerController.All.Count; i++)
+            {
+                var p = PlayerController.All[i];
+                if (p == null || p.Object == null || !p.Object.IsValid) continue;
+                if (++alpacas >= 2) return true;
+            }
+            return false;
+#endif
         }
 
         private bool TryBuildRequest(out GarmentSpec spec, out int price)

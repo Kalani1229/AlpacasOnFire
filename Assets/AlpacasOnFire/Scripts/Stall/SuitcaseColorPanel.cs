@@ -22,10 +22,17 @@ namespace AlpacasOnFire.Stall
     {
         public static SuitcaseColorPanel Instance { get; private set; }
 
-        /// <summary>顯示順序：便宜的在左邊。</summary>
+        /// <summary>
+        /// 顯示順序：便宜的在左邊。
+        ///
+        /// **沒有白色。** 白毛（羊駝毛）是玩家互相剃出來的現場產物，
+        /// 剃下來就掉在地上、直接送織布機，不經過背包也不需要素材箱。
+        /// 給它一格反而會壞掉：素材箱是開張時鎖定的，而互剃是營業中一直在做的事。
+        ///
+        /// 副作用是三格要從四色裡挑，取捨比從五色裡挑更緊，這是好事。
+        /// </summary>
         private static readonly DyeColorType[] Colors =
         {
-            DyeColorType.White,
             DyeColorType.Yellow,
             DyeColorType.Green,
             DyeColorType.Blue,

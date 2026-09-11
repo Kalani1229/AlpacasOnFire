@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using AlpacasOnFire.Core;
 using AlpacasOnFire.Interaction;
 using AlpacasOnFire.Items;
@@ -20,6 +21,14 @@ namespace AlpacasOnFire.Player
     public class PlayerController : NetworkBehaviour, IInteractable, IGarmentHost
     {
         public static PlayerController Local { get; private set; }
+
+        /// <summary>
+        /// 場上所有的羊駝。跟 WoolNpc.All、MaterialCrate.All 同一個慣例。
+        ///
+        /// 目前的用途：顧客系統要判斷「白毛有沒有來源」。白毛只能從剃隊友來，
+        /// 而不能剃自己，所以場上少於兩隻羊駝時白色訂單是無解的。
+        /// </summary>
+        public static readonly List<PlayerController> All = new();
 
         [Header("Anchors")]
         [SerializeField] private Transform _handAnchor;
@@ -84,6 +93,7 @@ namespace AlpacasOnFire.Player
             _stallAgent = GetComponent<PlayerStallAgent>();   // 舊 prefab 上可能沒有，允許 null
             CacheFadeRenderers();
             _interactor = new PlayerInteractor(this);
+            if (!All.Contains(this)) All.Add(this);
             gameObject.name = $"Alpaca_P{ColorIndex + 1}";
 
             if (HasStateAuthority)
@@ -103,6 +113,7 @@ namespace AlpacasOnFire.Player
 
         public override void Despawned(NetworkRunner runner, bool hasState)
         {
+            All.Remove(this);
             if (Local == this) Local = null;
             if (_rig != null) Destroy(_rig.gameObject);
         }
@@ -391,41 +402,31 @@ namespace AlpacasOnFire.Player
         /// <summary>
         /// 被隊友剃毛。只在 StateAuthority 呼叫。
         ///
-        /// **羊駝身上的白毛是可以賣的毛。** 多人互剃是一條真正的產線 ——
-        /// 白毛跟野生動物的毛走同一個共同背包、同一批素材箱、同一條定價表。
+        /// **白毛（羊駝毛）不走共同背包，也不走素材箱。** 它是現場產出的：
+        /// 剃下來就掉在腳邊，撿起來直接送去織布機。
         ///
-        /// 白毛是唯一無限再生的顏色（每 6 秒長回一份，而且隊友一直都在），
-        /// 所以它也理所當然是最便宜的那一種（10 元，紅毛的 2/9）。
-        /// 它的價值在「隨時拿得到」，不在單價 —— 這也是野生動物一律不長白毛的原因：
-        /// 白色要留給玩家自己這條產線，不然滿場都是最便宜的毛。
+        /// 為什麼不進背包／不給它一個素材箱：素材箱是「開張前備料、開張時鎖定」的東西，
+        /// 而互相剃毛是**營業中持續在做的事**。把白毛塞進那套流程，營業中剃到的毛
+        /// 會卡在背包裡進不了箱子，整條產線等於不存在。留在場上當物品反而最直接 ——
+        /// 剃、撿、織，三步都在同一個地方發生。
         ///
-        /// Classic（Stall_Test）沒有共同背包，維持原本「毛掉在地上」的行為，一行都沒改。
+        /// 也因為這樣，白毛不佔手提箱那三個顏色格。三格全部留給野外採集的顏色。
+        ///
+        /// Classic（Stall_Test）走的是完全相同的一條路，行為跟以前一模一樣。
         /// </summary>
         public bool Shear(PlayerController by)
         {
             if (!HasStateAuthority || Fleece <= 0) return false;
 
-            if (StallCatalog.Active.SuitcaseIsStash)
-            {
-                var stash = TeamStash.Instance;
-                if (stash == null) return false;
-
-                // 背包滿了就不剃 —— 毛留在身上，玩家看得出來沒拿到（跟 WoolNpc 一致）
-                if (!stash.TryAdd(DyeColorType.White, GameTuning.WoolPerShear)) return false;
-            }
-            else
-            {
-                for (int i = 0; i < GameTuning.WoolPerShear; i++)
-                {
-                    var offset = Random.insideUnitCircle * 0.4f;
-                    var pos = transform.position + Vector3.up * 0.6f + new Vector3(offset.x, 0f, offset.y);
-                    ItemFactory.Spawn(Runner, ItemKind.Wool, default, pos);
-                }
-            }
-
-            // 扣毛一定要排在上面之後 —— 背包滿的時候不能白白消耗一份
             Fleece--;
             FleeceTimer = TickTimer.CreateFromSeconds(Runner, GameTuning.FleeceRegenSeconds);
+
+            for (int i = 0; i < GameTuning.WoolPerShear; i++)
+            {
+                var offset = Random.insideUnitCircle * 0.4f;
+                var pos = transform.position + Vector3.up * 0.6f + new Vector3(offset.x, 0f, offset.y);
+                ItemFactory.Spawn(Runner, ItemKind.Wool, default, pos);
+            }
 
             GameAudio.PlayAt(SfxId.Shear, transform.position);
             return true;

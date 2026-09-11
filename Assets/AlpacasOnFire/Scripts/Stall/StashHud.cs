@@ -16,10 +16,14 @@ namespace AlpacasOnFire.Stall
     /// </summary>
     public class StashHud : MonoBehaviour
     {
-        /// <summary>顯示順序。白在最左邊（最便宜），紅在最右邊（最貴）。</summary>
+        /// <summary>
+        /// 顯示順序。黃在最左邊（最便宜），紅在最右邊（最貴）。
+        ///
+        /// **沒有白色。** 白毛不進共同背包 —— 它是互相剃毛的現場產物，
+        /// 剃下來就在地上。掛一個永遠是 0 的白色格子只會讓人以為壞了。
+        /// </summary>
         private static readonly DyeColorType[] Order =
         {
-            DyeColorType.White,
             DyeColorType.Yellow,
             DyeColorType.Green,
             DyeColorType.Blue,
