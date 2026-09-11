@@ -388,20 +388,44 @@ namespace AlpacasOnFire.Player
             ShearVisualTimer = TickTimer.CreateFromSeconds(Runner, GameTuning.ShearVisualSeconds);
         }
 
-        /// <summary>被隊友剃毛。只在 StateAuthority 呼叫。</summary>
+        /// <summary>
+        /// 被隊友剃毛。只在 StateAuthority 呼叫。
+        ///
+        /// **羊駝身上的白毛是可以賣的毛。** 多人互剃是一條真正的產線 ——
+        /// 白毛跟野生動物的毛走同一個共同背包、同一批素材箱、同一條定價表。
+        ///
+        /// 白毛是唯一無限再生的顏色（每 6 秒長回一份，而且隊友一直都在），
+        /// 所以它也理所當然是最便宜的那一種（10 元，紅毛的 2/9）。
+        /// 它的價值在「隨時拿得到」，不在單價 —— 這也是野生動物一律不長白毛的原因：
+        /// 白色要留給玩家自己這條產線，不然滿場都是最便宜的毛。
+        ///
+        /// Classic（Stall_Test）沒有共同背包，維持原本「毛掉在地上」的行為，一行都沒改。
+        /// </summary>
         public bool Shear(PlayerController by)
         {
             if (!HasStateAuthority || Fleece <= 0) return false;
 
+            if (StallCatalog.Active.SuitcaseIsStash)
+            {
+                var stash = TeamStash.Instance;
+                if (stash == null) return false;
+
+                // 背包滿了就不剃 —— 毛留在身上，玩家看得出來沒拿到（跟 WoolNpc 一致）
+                if (!stash.TryAdd(DyeColorType.White, GameTuning.WoolPerShear)) return false;
+            }
+            else
+            {
+                for (int i = 0; i < GameTuning.WoolPerShear; i++)
+                {
+                    var offset = Random.insideUnitCircle * 0.4f;
+                    var pos = transform.position + Vector3.up * 0.6f + new Vector3(offset.x, 0f, offset.y);
+                    ItemFactory.Spawn(Runner, ItemKind.Wool, default, pos);
+                }
+            }
+
+            // 扣毛一定要排在上面之後 —— 背包滿的時候不能白白消耗一份
             Fleece--;
             FleeceTimer = TickTimer.CreateFromSeconds(Runner, GameTuning.FleeceRegenSeconds);
-
-            for (int i = 0; i < GameTuning.WoolPerShear; i++)
-            {
-                var offset = Random.insideUnitCircle * 0.4f;
-                var pos = transform.position + Vector3.up * 0.6f + new Vector3(offset.x, 0f, offset.y);
-                ItemFactory.Spawn(Runner, ItemKind.Wool, default, pos);
-            }
 
             GameAudio.PlayAt(SfxId.Shear, transform.position);
             return true;

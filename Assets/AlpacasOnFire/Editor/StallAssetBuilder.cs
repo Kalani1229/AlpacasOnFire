@@ -528,6 +528,10 @@ namespace AlpacasOnFire.EditorTools
             SetRef(npc, "_bodyRenderer", body.GetComponent<Renderer>());
             SetRefArray(npc, "_fleeceTufts", tufts);
 
+            // 明確寫死成非白色。場景建置器會逐隻覆蓋掉，但手動拖一隻進場景的人
+            // 不該拿到一隻白羊 —— 白毛是玩家互剃專屬的產出。
+            SetEnum(npc, "_startColor", (int)DyeColorType.Yellow);
+
             // ---- 顧客模式：同一個 prefab，被徵召時才啟用 ----
             // 設計文件明講顧客「就是場上那群羊」，所以不做第二種 prefab。
             var signMat = Mat("M_CustomerSign", new Color(0.96f, 0.94f, 0.88f));

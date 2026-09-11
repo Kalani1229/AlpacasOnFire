@@ -34,18 +34,22 @@ namespace AlpacasOnFire.EditorTools
 
         /// <summary>
         /// NPC 的毛色分布。**貴的顏色比較少** —— 這是讓「選三色」變成真決策的關鍵：
-        /// 紅毛要花時間找、還要等牠長回來，白毛走過去就有一大把。
+        /// 紅毛要花時間找、還要等牠長回來，黃毛走過去就有一大把。
         ///
-        ///   白 3（10 元）、黃 3（15）、綠 2（20）、藍 1（30）、紅 1（45）
+        ///   黃 4（15 元）、綠 3（20）、藍 2（30）、紅 1（45）
+        ///
+        /// **野生動物一律不長白毛。** 白毛是玩家自己這條產線的專屬產出 ——
+        /// 互相剃隊友，每 6 秒長回一份，無限供應，所以它是最便宜的（10 元）。
+        /// 如果野外也有白毛，那條產線就沒有存在的理由了：走過去剃一隻羊
+        /// 永遠比跑回去找隊友輕鬆。
         ///
         /// 陣列直接列出每一隻的顏色，改比例只要改這一行。
         /// </summary>
         private static readonly DyeColorType[] NpcColours =
         {
-            DyeColorType.White,  DyeColorType.White,  DyeColorType.White,
-            DyeColorType.Yellow, DyeColorType.Yellow, DyeColorType.Yellow,
-            DyeColorType.Green,  DyeColorType.Green,
-            DyeColorType.Blue,
+            DyeColorType.Yellow, DyeColorType.Yellow, DyeColorType.Yellow, DyeColorType.Yellow,
+            DyeColorType.Green,  DyeColorType.Green,  DyeColorType.Green,
+            DyeColorType.Blue,   DyeColorType.Blue,
             DyeColorType.Red,
         };
 

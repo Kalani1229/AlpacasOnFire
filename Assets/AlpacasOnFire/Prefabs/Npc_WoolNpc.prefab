@@ -654,7 +654,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: c24b26ac2abbd43d28f451409e0da8d6, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::AlpacasOnFire.Npc.WoolNpc
-  _startColor: 0
+  _startColor: 4
   _interactionAnchor: {fileID: 8397139971436646102}
   _bodyRenderer: {fileID: 2361233932795216866}
   _fleeceTufts:

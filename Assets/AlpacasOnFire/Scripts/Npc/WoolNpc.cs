@@ -32,8 +32,9 @@ namespace AlpacasOnFire.Npc
         private enum NpcState : byte { Wander = 0, Pause = 1, Flee = 2 }
 
         [Header("Wool NPC")]
-        [Tooltip("開場時身上長哪一種顏色的毛。場景建置器會逐隻設定，讓五色平均分配。")]
-        [SerializeField] private DyeColorType _startColor = DyeColorType.White;
+        [Tooltip("開場時身上長哪一種顏色的毛。場景建置器會逐隻設定。" +
+                 "**不要設成白色** —— 白毛是玩家互剃專屬的產出，野生動物不長白毛。")]
+        [SerializeField] private DyeColorType _startColor = DyeColorType.Yellow;
         [SerializeField] private Transform _interactionAnchor;
         [SerializeField] private Renderer _bodyRenderer;
         [Tooltip("身上的毛。有幾份毛就顯示幾撮，剃光就全部關掉。")]
