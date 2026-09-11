@@ -137,10 +137,13 @@ namespace AlpacasOnFire.Items
             _mpb.SetColor("_Color", c);
             _levelIndicator.SetPropertyBlock(_mpb);
 
-            // 用剩餘量壓高度，一眼看得出還剩多少
-            var s = _levelIndicator.transform.localScale;
-            _levelIndicator.transform.localScale = new Vector3(s.x, Mathf.Max(0.05f, Charge01), s.z);
+            // 用剩餘量壓高度，一眼看得出還剩多少。
+            // 這條是直的，所以是**從底部往上長**（水平的條子則是從左往右）——
+            // 總之不能是從中心往兩邊撐開，那會看起來像浮在半空。
+            _levelBar.Apply(_levelIndicator.transform, Charge01, min: 0.05f);
         }
+
+        private readonly BarAnchor _levelBar = new(BarAnchor.Axis.Y);
 
         public override string DisplayName
             => $"{PlaceholderPalette.DyeName(Color)}顏料（{Charge01 * 100f:F0}%）";

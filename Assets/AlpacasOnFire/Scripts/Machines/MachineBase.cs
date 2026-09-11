@@ -40,6 +40,8 @@ namespace AlpacasOnFire.Machines
         private Color _bodyBaseColor = Color.white;
         private bool _bodyBaseCached;
 
+        private readonly BarAnchor _progressBar01 = new(BarAnchor.Axis.X);
+
         public Transform OutputAnchor => _outputAnchor != null ? _outputAnchor : transform;
 
         /// <summary>可不可以開始新的一批。成品沒拿走就不行。</summary>
@@ -127,7 +129,10 @@ namespace AlpacasOnFire.Machines
             ProcessTimer = TickTimer.CreateFromSeconds(Runner, remaining);
         }
 
-        /// <summary>已經織了多久（秒）。進度條自己畫的機台會用到。</summary>
+        /// <summary>
+        /// 這一批已經跑了多久（秒）。目前沒有人用 —— 進度條都走 Progress01（比例），
+        /// 這支留給需要「絕對秒數」的顯示（例如提示字要寫還剩幾秒）。
+        /// </summary>
         public float ElapsedSeconds =>
             Processing ? Mathf.Max(0f, ProcessDuration - (ProcessTimer.RemainingTime(Runner) ?? 0f)) : 0f;
 
@@ -216,11 +221,9 @@ namespace AlpacasOnFire.Machines
             {
                 bool show = Processing;
                 if (_progressBar.gameObject.activeSelf != show) _progressBar.gameObject.SetActive(show);
-                if (show)
-                {
-                    var s = _progressBar.localScale;
-                    _progressBar.localScale = new Vector3(Mathf.Max(0.02f, Progress01), s.y, s.z);
-                }
+
+                // 由左往右長，不是從中心往兩邊撐開（Cube 的軸心在中心，直接縮放會是後者）
+                if (show) _progressBar01.Apply(_progressBar, Progress01);
             }
 
             _mpb ??= new MaterialPropertyBlock();

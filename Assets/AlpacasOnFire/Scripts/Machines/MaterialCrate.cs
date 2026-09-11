@@ -53,6 +53,8 @@ namespace AlpacasOnFire.Machines
         private int _renderedColor = -1;
         private int _renderedRemaining = -1;
 
+        private readonly BarAnchor _fillBarAnchor = new(BarAnchor.Axis.Y);
+
         public DyeColorType Color => (DyeColorType)ColorRaw;
         public bool HasStock => Remaining > 0;
         public Transform WoolAnchor => _woolAnchor != null ? _woolAnchor : transform;
@@ -110,11 +112,14 @@ namespace AlpacasOnFire.Machines
 
         // ---------------- 左鍵／Space：拿一份毛 ----------------
 
+        /// <summary>
+        /// **不要求空手。** 手上有東西的話，Interact 會先把它放到腳邊再拿毛
+        /// —— 拿一份毛不該逼玩家先找地方放東西。
+        /// </summary>
         public override bool CanInteract(in InteractionContext ctx)
         {
             if (!IsBusiness || Remaining <= 0) return false;
-            if (ctx.Player == null || !ctx.IsEmptyHanded) return false;
-            return true;
+            return ctx.Player != null;
         }
 
         /// <summary>
@@ -132,13 +137,20 @@ namespace AlpacasOnFire.Machines
                 return Loaded ? $"{colour}毛箱（剩 {Remaining}）" : $"{colour}毛箱（開張時才裝料）";
 
             if (Remaining <= 0) return $"{colour}毛箱：空了";
-            if (!ctx.IsEmptyHanded) return $"先空出手才能拿{colour}毛";
+
+            // 手上有東西時要**先講明會放下什麼**，不然玩家會覺得東西莫名其妙掉了
+            if (!ctx.IsEmptyHanded)
+                return $"[左鍵] 拿{colour}毛（先放下 {ctx.Held.DisplayName}，剩 {Remaining}）";
+
             return $"[左鍵] 拿{colour}毛（剩 {Remaining}）";
         }
 
         public override void Interact(in InteractionContext ctx)
         {
             if (!HasStateAuthority || !CanInteract(in ctx)) return;
+
+            // 手上有東西就先騰出手。跟主動接住同一套手感：要拿的東西一定拿得到。
+            ctx.Player.Carry.MakeRoomForPickup();
 
             var spec = GarmentSpec.Create(PatternType.None, Color);
             var wool = ItemFactory.SpawnIntoHands(Runner, ItemKind.Wool, spec, ctx.Player);
@@ -177,15 +189,15 @@ namespace AlpacasOnFire.Machines
 
             if (_fillBar != null)
             {
-                // 剩餘量條：用一個參考上限換算高度，滿了就是滿格
                 bool show = Loaded && Remaining > 0;
                 if (_fillBar.gameObject.activeSelf != show) _fillBar.gameObject.SetActive(show);
 
                 if (show)
                 {
+                    // 剩餘量條：用一個參考上限換算高度，滿了就是 prefab 上的原始高度。
+                    // 從**底部**長上來，不是從中間往兩邊撐開。
                     float t = Mathf.Clamp01(Remaining / (float)GameTuning.CrateFillBarReference);
-                    var s = _fillBar.localScale;
-                    _fillBar.localScale = new Vector3(s.x, Mathf.Max(0.05f, t), s.z);
+                    _fillBarAnchor.Apply(_fillBar, t);
                 }
             }
         }

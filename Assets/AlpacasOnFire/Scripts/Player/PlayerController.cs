@@ -31,6 +31,8 @@ namespace AlpacasOnFire.Player
         [SerializeField] private Renderer _bodyRenderer;
         [SerializeField] private Renderer _garmentRenderer;
         [SerializeField] private Renderer _fleeceIndicator;
+        [Tooltip("剃毛器。平常收在毛裡看不見，剃毛的瞬間才伸出來。由建置工具自動接上。")]
+        [SerializeField] private GameObject _shearsVisual;
 
         [Header("Fade")]
         [Tooltip("擋住畫布時改用的半透明材質。由建置工具自動接上。")]
@@ -47,6 +49,10 @@ namespace AlpacasOnFire.Player
         [Networked] public NetworkBool HasGarmentNet { get; set; }
         [Networked] public GarmentSpec WornGarment { get; set; }
         [Networked] private TickTimer FleeceTimer { get; set; }
+
+        /// <summary>剃毛器伸出來的殘餘時間。走 [Networked] 才能讓所有人都看到這個動作。</summary>
+        [Networked] private TickTimer ShearVisualTimer { get; set; }
+
         [Networked] private NetworkButtons PreviousButtons { get; set; }
 
         private NetworkCharacterController _ncc;
@@ -157,9 +163,8 @@ namespace AlpacasOnFire.Player
                     if (pressed.IsSet(GameButton.Interact))
                         HandlePrimaryPress(in ctx);
 
-                    // v6：E 拿出／收起隨身剃毛器
-                    if (pressed.IsSet(GameButton.DefaultTool))
-                        _carry.ToggleDefaultTool();
+                    // E（隨身剃毛器）已經移除 —— 剃毛改成左鍵的一般互動，
+                    // GameButton.DefaultTool 這個列舉值保留但不再有人送出。
 
                     // v6：右鍵的次要互動（手提箱選色／切色）。
                     // 手上拿著 IHoldTool 時 FindSecondaryTarget 會直接回 null，
@@ -368,6 +373,21 @@ namespace AlpacasOnFire.Player
             FleeceTimer = TickTimer.CreateFromSeconds(Runner, GameTuning.FleeceRegenSeconds);
         }
 
+        /// <summary>
+        /// 伸出剃毛器。**這是剃的那一方呼叫的**（不是被剃的那一方），
+        /// 所以要傳 ctx.Player 而不是 this。
+        ///
+        /// 剃毛器不再是一件要撿、要拿、要收的道具 —— 它平常收在毛裡看不見，
+        /// 按下左鍵的瞬間伸出來、一下子又縮回去。玩家永遠不必管它在哪。
+        ///
+        /// 只在 StateAuthority 呼叫；TickTimer 是 [Networked]，所有端都會看到。
+        /// </summary>
+        public void TriggerShearVisual()
+        {
+            if (!HasStateAuthority) return;
+            ShearVisualTimer = TickTimer.CreateFromSeconds(Runner, GameTuning.ShearVisualSeconds);
+        }
+
         /// <summary>被隊友剃毛。只在 StateAuthority 呼叫。</summary>
         public bool Shear(PlayerController by)
         {
@@ -404,6 +424,14 @@ namespace AlpacasOnFire.Player
                 float t = GameTuning.FleeceMax <= 0 ? 0f : (float)Fleece / GameTuning.FleeceMax;
                 _fleeceIndicator.enabled = Fleece > 0;
                 Tint(_fleeceIndicator, Color.Lerp(new Color(0.6f, 0.55f, 0.5f), PlaceholderPalette.Wool, t));
+            }
+
+            // 剃毛器：只有剃的那一瞬間看得見
+            if (_shearsVisual != null)
+            {
+                bool show = Object != null && Object.IsValid
+                            && !ShearVisualTimer.ExpiredOrNotRunning(Runner);
+                if (_shearsVisual.activeSelf != show) _shearsVisual.SetActive(show);
             }
         }
 
@@ -482,22 +510,34 @@ namespace AlpacasOnFire.Player
         public Transform InteractionAnchor => GarmentAnchor;
         public int InteractionPriority => 2;   // 隊友優先於背後的機台
 
+        /// <summary>
+        /// 對隊友按左鍵的優先順序：手上工具的用途 -> 脫下衣服 -> 剃毛。
+        ///
+        /// 脫衣服排在剃毛前面，是因為它的條件嚴格得多（空手 + 對方身上真的有衣服），
+        /// 而剃毛幾乎永遠成立。反過來排的話，隊友只要還有毛就永遠脫不下衣服。
+        /// </summary>
         public bool CanInteract(in InteractionContext ctx)
         {
             if (ctx.Player == this) return false;
 
-            if (ctx.Held is IGarmentHostUser user)
-                return user.TryUseOnHost(this, in ctx, false, out _);
+            if (ctx.Held is IGarmentHostUser user && user.TryUseOnHost(this, in ctx, false, out _))
+                return true;
 
-            return ctx.IsEmptyHanded && HasGarmentNet;   // 空手 -> 幫隊友脫下衣服
+            if (ctx.IsEmptyHanded && HasGarmentNet) return true;   // 空手 -> 幫隊友脫下衣服
+
+            return Fleece > 0;                                     // 其餘 -> 剃毛
         }
 
         public string GetPrompt(in InteractionContext ctx)
         {
+            if (ctx.Player == this) return null;
+
             if (ctx.Held is IGarmentHostUser user && user.TryUseOnHost(this, in ctx, false, out var prompt))
                 return prompt;
             if (ctx.IsEmptyHanded && HasGarmentNet)
-                return $"[Space] 脫下 {WornGarment.Describe()}";
+                return $"[左鍵] 脫下 {WornGarment.Describe()}";
+            if (Fleece > 0)
+                return $"[左鍵] 剃毛（{Fleece}/{GameTuning.FleeceMax}）";
             return null;
         }
 
@@ -512,6 +552,14 @@ namespace AlpacasOnFire.Player
             {
                 ItemFactory.SpawnIntoHands(Runner, ItemKind.Garment, spec, ctx.Player);
                 GameAudio.PlayAt(SfxId.DressOff, transform.position);
+                return;
+            }
+
+            // 剃毛不需要拿著剃毛器 —— 按下去的瞬間自己伸出來
+            if (Fleece > 0)
+            {
+                ctx.Player.TriggerShearVisual();
+                Shear(ctx.Player);
             }
         }
     }

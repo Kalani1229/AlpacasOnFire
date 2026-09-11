@@ -344,10 +344,7 @@ namespace AlpacasOnFire.EditorTools
             var slotMat = Mat("M_WeaveSlot", PlaceholderPalette.Wool);
             var lightMat = Mat("M_StatusLight", new Color(0.3f, 0.9f, 0.4f));
 
-            var trackMat  = Mat("M_WeaveTrack",  new Color(0.14f, 0.14f, 0.16f));
-            var targetMat = Mat("M_WeaveTarget", new Color(0.33f, 0.33f, 0.38f));
             var fillMat   = Mat("M_WeaveFill",   new Color(0.95f, 0.75f, 0.15f));
-            var tickMat   = Mat("M_WeaveTick",   new Color(1f, 1f, 1f));
 
             float h = GameTuning.MachineHeight;
             float w = GameTuning.MachineFootprint;
@@ -371,33 +368,15 @@ namespace AlpacasOnFire.EditorTools
             var status = Prim(PrimitiveType.Sphere, "StatusLight", root.transform,
                 new Vector3(0.45f, h + 0.12f, -0.45f), Vector3.one * 0.18f, lightMat, keepCollider: false);
 
-            // ---- 進度條：自己畫，不用 MachineBase 的預設 ----
+            // ---- 進度條：跟縫紉機／果汁機同一套（MachineBase 的預設畫法）----
             //
-            // 四段疊在一起，全部掛在 Track 底下：
-            //   Track  底色，永遠滿格（= 雙色秒數）
-            //   Target 目前的目標終點（單色停在刻度線、雙色推到滿格）
-            //   Fill   已經織了多久，只前進不倒退
-            //   Tick   單色死線的刻度，固定在 4/7
-            //
-            // WeavingMachine.SetBarWidth() 用 BarLeft = -0.5、BarWidth = 1.0 的本地座標，
-            // 所以 Track 的 localScale.x 要剛好是 1。
-            var track = Prim(PrimitiveType.Cube, "WeaveTrack", root.transform,
+            // 整條 = 目前這件衣服的完成點：單色時整條就是 4 秒，
+            // 放了第二份毛之後整條變成 7 秒。所以不需要中間的刻度線，
+            // 也不需要「目標終點」那一段 —— 終點永遠就是條子的右端。
+            var bar = Prim(PrimitiveType.Cube, "ProgressBar", root.transform,
                 new Vector3(0f, h + 0.30f, -0.6f), new Vector3(1f, 0.09f, 0.09f),
-                trackMat, keepCollider: false);
-
-            var target = Prim(PrimitiveType.Cube, "WeaveTarget", track.transform,
-                new Vector3(0f, 0f, -0.02f), new Vector3(1f, 0.8f, 0.8f),
-                targetMat, keepCollider: false);
-
-            var fill = Prim(PrimitiveType.Cube, "WeaveFill", track.transform,
-                new Vector3(0f, 0f, -0.04f), new Vector3(1f, 0.62f, 0.62f),
                 fillMat, keepCollider: false);
-
-            var tick = Prim(PrimitiveType.Cube, "WeaveTick", track.transform,
-                new Vector3(0f, 0f, -0.06f), new Vector3(0.02f, 1.5f, 1.5f),
-                tickMat, keepCollider: false);
-
-            track.SetActive(false);   // 只有織製中才顯示
+            bar.SetActive(false);   // 只有織製中才顯示
 
             // 操作面在背面（-Z），跟其他機台一致
             var interact = Empty("InteractionAnchor", root.transform, new Vector3(0f, h * 0.6f, -0.75f));
@@ -411,12 +390,7 @@ namespace AlpacasOnFire.EditorTools
             SetRef(m, "_bodyRenderer", body.GetComponent<Renderer>());
             SetRefArray(m, "_woolSlotVisuals", slots);
 
-            // **_progressBar 刻意留空** —— 織布機自己畫進度條，
-            // 留空會讓 MachineBase.Render() 跳過預設畫法，其他機台完全不受影響。
-            SetRef(m, "_weaveTrack",  track.transform);
-            SetRef(m, "_weaveTarget", target.transform);
-            SetRef(m, "_weaveFill",   fill.transform);
-            SetRef(m, "_weaveTick",   tick.transform);
+            SetRef(m, "_progressBar", bar.transform);
 
             SetEnum(m, "_outputPattern", (int)PatternType.TShirt);
 

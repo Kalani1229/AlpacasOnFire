@@ -71,6 +71,23 @@ namespace AlpacasOnFire.Player
             GameAudio.PlayAt(SfxId.Drop, transform.position);
         }
 
+        /// <summary>
+        /// 騰出手來拿新東西：手上有東西就先放掉，讓接下來的拿取一定成功。
+        ///
+        /// 為什麼不是「手上有東西就不給拿」：那會逼玩家為了拿一份毛先找地方放東西，
+        /// 在限時的攤位上是純粹的摩擦。主動接住（TryManualCatch）早就是這個手感了 ——
+        /// 接到了就把原本手上的東西放到腳邊，這裡跟它一致。
+        ///
+        /// 一律放到腳邊、不銷毀 —— 玩家看得到、撿得回來。
+        ///
+        /// 只在 StateAuthority 呼叫。
+        /// </summary>
+        public void MakeRoomForPickup()
+        {
+            if (!HasStateAuthority || !HasItem) return;
+            Drop();
+        }
+
         /// <summary>手上的東西被用掉了（縫紉機吃掉羊毛、衣服穿到人偶上……）。</summary>
         public void ConsumeHeld()
         {
@@ -90,46 +107,9 @@ namespace AlpacasOnFire.Player
             return item;
         }
 
-        // ---------------- 隨身工具（E）----------------
-
-        /// <summary>
-        /// v6：剃毛器改成隨身預設工具。按 E 生一把到手上，再按一次收起來。
-        ///
-        /// 收起來是 Despawn 不是丟在地上 —— 它是「隨身」工具，不該在世界上留下一堆。
-        /// 手上有別的東西時不做事，但要給提示，不能靜默失敗（玩家會以為按鍵壞了）。
-        ///
-        /// 只在 StateAuthority 呼叫。
-        /// </summary>
-        public void ToggleDefaultTool()
-        {
-            if (!HasStateAuthority) return;
-
-            var held = Held;
-
-            // 手上已經是剃毛器 -> 收起來
-            if (held != null && held.Kind == ItemKind.Shears)
-            {
-                ConsumeHeld();
-                GameAudio.PlayAt(SfxId.Drop, transform.position);
-                return;
-            }
-
-            if (HasItem)
-            {
-                RPC_DefaultToolBlocked();
-                return;
-            }
-
-            var tool = ItemFactory.SpawnIntoHands(Runner, ItemKind.Shears, default, _player);
-            if (tool == null)
-                Debug.LogError("[v6] 生成剃毛器失敗：GameCatalog 裡沒有 ItemKind.Shears 的 prefab。");
-        }
-
-        [Rpc(RpcSources.StateAuthority, RpcTargets.InputAuthority)]
-        private void RPC_DefaultToolBlocked()
-        {
-            Stall.StallManager.LocalNotice("先空出手才能拿剃毛器");
-        }
+        // 隨身剃毛器（E）已經移除。剃毛不再是「拿著工具去用」，
+        // 而是對著羊或隊友按左鍵就直接剃 —— 剃毛器只在動作的那一瞬間伸出來。
+        // 見 PlayerController.TriggerShearVisual() 與 WoolNpc.Interact()。
 
         // ---------------- 丟出（左鍵第 3 順位 / Q）----------------
 

@@ -247,13 +247,17 @@ namespace AlpacasOnFire.Npc
         /// <summary>比地面雜物高、比機台低。NPC 不該蓋過攤位上的裝備。</summary>
         public int InteractionPriority => 1;
 
+        /// <summary>
+        /// **不需要手上拿著剃毛器。** 剃毛器已經不是要攜帶的道具了 ——
+        /// 對著羊按左鍵就是剃毛，剃毛器只在動作的那一瞬間伸出來再收回去。
+        ///
+        /// 也不要求空手：剃下來的毛直接進共同背包，不經過玩家的手，
+        /// 所以手上拿著什麼都不影響。
+        /// </summary>
         public bool CanInteract(in InteractionContext ctx)
         {
             if (IsCustomer) return false;
             if (ctx.Player == null) return false;
-
-            // 手上要拿著剃毛器。沒拿的話不出提示，免得走過每隻羊都跳字
-            if (ctx.HeldKind != ItemKind.Shears) return false;
 
             // 毛剃光了也要能互動 —— GetPrompt 要說「剃光了」而不是靜默無反應
             return true;
@@ -266,15 +270,17 @@ namespace AlpacasOnFire.Npc
             if (Fleece <= 0) return "牠身上的毛剃光了";
 
             string colour = PlaceholderPalette.DyeName(WoolColor);
-            return $"[Space] 剃{colour}毛（{Fleece}/{GameTuning.NpcFleeceMax}）";
+            return $"[左鍵] 剃{colour}毛（{Fleece}/{GameTuning.NpcFleeceMax}）";
         }
 
         public void Interact(in InteractionContext ctx)
         {
             if (!HasStateAuthority) return;
-            if (ctx.HeldKind != ItemKind.Shears) return;
             if (Fleece <= 0) return;
 
+            // 先伸出剃毛器再結算 —— 剃不成功（背包滿了）也該看到動作，
+            // 不然玩家不知道自己到底有沒有按到
+            ctx.Player.TriggerShearVisual();
             TryShear(ctx.Player.transform.position);
         }
 

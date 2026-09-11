@@ -187,6 +187,14 @@ namespace AlpacasOnFire.EditorTools
             var fleece = Prim(PrimitiveType.Sphere, "FleeceIndicator", root.transform,
                 new Vector3(0f, 1.72f, 0f), Vector3.one * 0.42f, fleeceMat, keepCollider: false);
 
+            // 剃毛器：平常關著，剃毛的瞬間由 PlayerController.Render() 打開 0.35 秒。
+            // 掛在身體側前方，剃毛時看得出是「伸出來揮了一下」而不是憑空掉東西。
+            var shearsMat = Mat("M_Shears", new Color(0.75f, 0.78f, 0.82f));
+            var shears = Prim(PrimitiveType.Cube, "ShearsVisual", root.transform,
+                new Vector3(0.34f, 1.1f, 0.62f), new Vector3(0.12f, 0.12f, 0.42f),
+                shearsMat, keepCollider: false);
+            shears.SetActive(false);
+
             var head  = Empty("HeadAnchor", root.transform, new Vector3(0f, GameTuning.EyeHeight, 0f));
             var hand  = Empty("HandAnchor", root.transform, new Vector3(0.25f, 1.05f, 0.6f));
             var catchA = Empty("CatchAnchor", root.transform, new Vector3(0f, 1.0f, 0f));
@@ -226,6 +234,7 @@ namespace AlpacasOnFire.EditorTools
             SetRef(pc, "_bodyRenderer", body.GetComponent<Renderer>());
             SetRef(pc, "_garmentRenderer", garment.GetComponent<Renderer>());
             SetRef(pc, "_fleeceIndicator", fleece.GetComponent<Renderer>());
+            SetRef(pc, "_shearsVisual", shears);
 
             // 擋住畫布時會整隻換成這個半透明材質
             SetRef(pc, "_fadeMaterial",

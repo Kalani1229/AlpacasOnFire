@@ -24,6 +24,10 @@ namespace AlpacasOnFire.Machines
     /// 想做雙色，第二份毛必須在單色織完之前送到 ——
     /// 所以丟接與輸送帶第一次有了真正的用途，不只是省腳程。
     ///
+    /// 進度條走 MachineBase 的預設：**整條就是目前這件衣服的完成點**。
+    /// 單色時整條 = 4 秒；加了第二份毛之後整條 = 7 秒，條子會往回跳一次
+    /// （終點被推遠了，已完成的比例本來就變小）。
+    ///
     /// **順序有差**：紅→藍 是「紅底藍紋」，藍→紅 是「藍底紅紋」，兩件不同的衣服。
     ///
     /// 「做好留在機台、手動取貨、旁邊有朝外送的輸送帶就自動出貨」整套都是
@@ -37,16 +41,6 @@ namespace AlpacasOnFire.Machines
 
         [Tooltip("機體上的兩格色塊：第 0 格主色、第 1 格點綴色。長度要是 2。")]
         [SerializeField] private Renderer[] _woolSlotVisuals;
-
-        [Header("進度條（自己畫，不用 MachineBase 的預設）")]
-        [Tooltip("整條軌道，永遠是滿格 = 雙色秒數。")]
-        [SerializeField] private Transform _weaveTrack;
-        [Tooltip("目前目標的終點段（單色時停在刻度線，加了第二份毛才推到滿格）。")]
-        [SerializeField] private Transform _weaveTarget;
-        [Tooltip("已經織了多久。**只前進、不倒退**。")]
-        [SerializeField] private Transform _weaveFill;
-        [Tooltip("單色的終點刻度線，固定在 4/7 的位置。")]
-        [SerializeField] private Transform _weaveTick;
 
         [Networked] public int WoolCount { get; set; }
         [Networked] public int MainColorRaw { get; set; }
@@ -199,29 +193,20 @@ namespace AlpacasOnFire.Machines
         // ---------------- 外觀 ----------------
 
         /// <summary>
-        /// 進度條自己畫，**不用 MachineBase 的預設**。
+        /// 進度條走 MachineBase 的預設畫法，跟其他機台一樣。
         ///
-        /// 為什麼：`Progress01` 是「已經過 / 目標時長」，目標從 4 變成 7 的那一刻
-        /// 分母變大，條子會往回縮（3/4 = 75% -> 3/7 = 43%）。邏輯上正確，
-        /// 但看起來像 bug。
+        /// 整條 = 目前這件衣服的完成點：
+        ///   只放一份毛 -> 整條 = 單色的 4 秒
+        ///   放了第二份 -> 整條 = 雙色的 7 秒
         ///
-        /// 所以這裡永遠以雙色秒數為滿格：
-        ///   填色 = 已經過 / 7          -> **單調前進，永遠不倒退**
-        ///   終點 = 目前目標 / 7        -> 加了第二份毛就從 4/7 推到 7/7
-        ///   刻度 = 4/7 的固定位置      -> 單色的死線看得見
-        ///
-        /// 「已經過的時間算數」就這樣變成看得見的東西：
-        /// 填色一格都不動，代價直接表現成「終點被推遠了」。
-        ///
-        /// prefab 上的 `_progressBar` 刻意留空，所以 base.Render() 會跳過它的
-        /// 預設畫法 —— 其他機台完全不受影響。
+        /// **加入第二份毛的那一刻，填色會往回跳**（第 3 秒時 3/4 = 75% 變成 3/7 = 43%）。
+        /// 這是這個表示法的必然結果，不是 bug：終點被推遠了，所以「已完成的比例」
+        /// 本來就變小。它同時也是最直接的回饋 —— 玩家看得出自己剛剛買了更多時間。
         /// </summary>
         public override void Render()
         {
             base.Render();
-
             RenderWoolSlots();
-            RenderProgress();
         }
 
         private void RenderWoolSlots()
@@ -240,60 +225,6 @@ namespace AlpacasOnFire.Machines
 
                 Tint(r, PlaceholderPalette.Dye(i == 0 ? MainColor : AccentColor));
             }
-        }
-
-        private void RenderProgress()
-        {
-            bool show = Processing;
-
-            if (_weaveTrack != null && _weaveTrack.gameObject.activeSelf != show)
-                _weaveTrack.gameObject.SetActive(show);
-
-            if (!show) return;
-
-            float full = Mathf.Max(0.01f, GameTuning.WeaveDoubleSeconds);
-            float fill01 = Mathf.Clamp01(ElapsedSeconds / full);
-            float target01 = Mathf.Clamp01(ProcessDuration / full);
-
-            SetBarWidth(_weaveFill, fill01);
-            SetBarWidth(_weaveTarget, target01);
-
-            // 刻度線固定在單色的死線上，不隨狀態移動
-            if (_weaveTick != null)
-            {
-                float tick01 = Mathf.Clamp01(GameTuning.WeaveSingleSeconds / full);
-                var p = _weaveTick.localPosition;
-                _weaveTick.localPosition = new Vector3(BarLeft + tick01 * BarWidth, p.y, p.z);
-            }
-
-            _mpb ??= new MaterialPropertyBlock();
-
-            // 已經追不上單色死線（目標還是單色、時間快到）時把填色轉暖，
-            // 提醒玩家「要加點綴色就是現在」
-            bool stillSingle = WoolCount < GameTuning.WeaveMaxWool;
-            var fillColour = stillSingle
-                ? Color.Lerp(new Color(0.95f, 0.75f, 0.15f), new Color(1f, 0.45f, 0.2f), fill01 / Mathf.Max(0.01f, target01))
-                : new Color(0.4f, 0.85f, 1f);
-
-            var fillRenderer = _weaveFill != null ? _weaveFill.GetComponent<Renderer>() : null;
-            Tint(fillRenderer, fillColour);
-        }
-
-        /// <summary>進度條在機體本地座標中的左端與總長。跟 prefab 的擺法對應。</summary>
-        private const float BarLeft = -0.5f;
-        private const float BarWidth = 1.0f;
-
-        /// <summary>把一段條子從左端往右畫到 t（0~1）。用縮放 + 位移，不用 Image。</summary>
-        private static void SetBarWidth(Transform bar, float t)
-        {
-            if (bar == null) return;
-
-            float w = Mathf.Max(0.001f, t * BarWidth);
-            var s = bar.localScale;
-            bar.localScale = new Vector3(w, s.y, s.z);
-
-            var p = bar.localPosition;
-            bar.localPosition = new Vector3(BarLeft + w * 0.5f, p.y, p.z);
         }
 
         private void Tint(Renderer r, Color c)

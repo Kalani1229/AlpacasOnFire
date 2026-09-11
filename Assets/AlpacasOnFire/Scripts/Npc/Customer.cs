@@ -207,12 +207,11 @@ namespace AlpacasOnFire.Npc
                 }
             }
 
+            // 倒數條從左端固定、右端往回退 —— 不是從兩端往中間收合
             if (_patienceBar != null)
-            {
-                float t = Patience01;
-                var s = _patienceBar.localScale;
-                _patienceBar.localScale = new Vector3(Mathf.Max(0.02f, t), s.y, s.z);
-            }
+                _patienceBarAnchor.Apply(_patienceBar, Patience01);
         }
+
+        private readonly BarAnchor _patienceBarAnchor = new(BarAnchor.Axis.X);
     }
 }

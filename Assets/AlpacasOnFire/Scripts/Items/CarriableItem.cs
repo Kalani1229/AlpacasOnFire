@@ -253,22 +253,30 @@ namespace AlpacasOnFire.Items
         public Transform InteractionAnchor => transform;
         public virtual int InteractionPriority => 0;
 
+        /// <summary>
+        /// **不要求空手。** 手上有東西的話，Interact 會先把它放到腳邊再撿
+        /// —— 撿東西不該逼玩家先找地方放手上的東西。主動接住（TryManualCatch）
+        /// 早就是這個手感了，這裡跟它一致。
+        ///
+        /// 手上拿著「能用在這個物件上」的東西時（IItemUser，例如把衣服裝進箱子）
+        /// 那件事優先，不會變成放下箱子去撿衣服。
+        /// </summary>
         public virtual bool CanInteract(in InteractionContext ctx)
         {
             if (IsHeld) return false;            // Phase 2 才有搶奪
-            if (ctx.Player == null) return false;
-
-            if (ctx.Held is IItemUser user)
-                return user.TryUseOnItem(this, ctx, false, out _);
-
-            return ctx.IsEmptyHanded;
+            return ctx.Player != null;
         }
 
         public virtual string GetPrompt(in InteractionContext ctx)
         {
             if (ctx.Held is IItemUser user && user.TryUseOnItem(this, ctx, false, out var prompt))
                 return prompt;
-            return $"[Space] 撿起 {DisplayName}";
+
+            // 手上有東西時要先講明會放下什麼，不然玩家會覺得東西莫名其妙掉了
+            if (!ctx.IsEmptyHanded)
+                return $"[左鍵] 撿起 {DisplayName}（先放下 {ctx.Held.DisplayName}）";
+
+            return $"[左鍵] 撿起 {DisplayName}";
         }
 
         public virtual void Interact(in InteractionContext ctx)
@@ -278,8 +286,8 @@ namespace AlpacasOnFire.Items
             if (ctx.Held is IItemUser user && user.TryUseOnItem(this, ctx, true, out _))
                 return;
 
-            if (ctx.IsEmptyHanded)
-                ctx.Player.Carry.TryPickup(this);
+            ctx.Player.Carry.MakeRoomForPickup();
+            ctx.Player.Carry.TryPickup(this);
         }
 
         public virtual string DisplayName => _kind switch

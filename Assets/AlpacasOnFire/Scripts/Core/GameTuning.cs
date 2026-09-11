@@ -62,6 +62,10 @@ namespace AlpacasOnFire.Core
         public const float FleeceRegenSeconds  = 6f;     // 每 6 秒長回 1 份
         public const int   WoolPerShear        = 1;      // 每次剃毛掉 1 顆羊毛
 
+        // 剃毛器伸出來多久。它不是道具、沒有攜帶狀態，只是動作的一個瞬間，
+        // 所以要短到像揮一下、又長到看得見。
+        public const float ShearVisualSeconds  = 0.35f;
+
         // ---------- 縫紉機 ----------
         public const int   SewingWoolRequired  = 1;      // 1 份羊毛 = 1 件衣服
         public const float SewingProcessSeconds= 6.0f;
