@@ -26,8 +26,18 @@ namespace AlpacasOnFire.Npc
 
         /// <summary>UI 用：成交（價格, 描述）。</summary>
         public static event Action<int, string> OnCustomerServed;
-        /// <summary>UI 用：顧客等太久走了（描述）。</summary>
+
+        /// <summary>UI 用：交了沒人要的衣服（描述）。**不是**顧客等太久 —— 那個是 OnCustomerTimeout。</summary>
         public static event Action<string> OnCustomerLeft;
+
+        /// <summary>UI 用：顧客等太久自己走了（描述）。由 Customer 在耐心耗盡時觸發。</summary>
+        public static event Action<string> OnCustomerTimeout;
+
+        /// <summary>
+        /// 給 Customer 用的觸發口。
+        /// C# 不允許在宣告事件的型別外面 Invoke，所以耐心耗盡的通知要繞這一手。
+        /// </summary>
+        public static void RaiseTimeout(string desc) => OnCustomerTimeout?.Invoke(desc);
 
         [Networked] private TickTimer SpawnTimer { get; set; }
 
@@ -76,6 +86,27 @@ namespace AlpacasOnFire.Npc
 
         private static Customer CustomerOf(WoolNpc npc)
             => npc != null ? npc.GetComponent<Customer>() : null;
+
+        /// <summary>
+        /// 把目前排隊中的顧客填進 buffer。HUD 的訂單卡要用。
+        /// 唯讀，任何端都可以呼叫。
+        ///
+        /// **順序刻意跟著 WoolNpc.All 走**（也就是生成順序），不照耐心排序 ——
+        /// 照耐心排的話卡片會隨著倒數互相超車、上下亂跳，很難讀。
+        /// 「先做哪一張」交給卡片上的倒數條表達就夠了。
+        /// </summary>
+        public void CollectActive(List<Customer> buffer)
+        {
+            buffer.Clear();
+
+            for (int i = 0; i < WoolNpc.All.Count; i++)
+            {
+                var c = CustomerOf(WoolNpc.All[i]);
+                if (c == null || c.Object == null || !c.Object.IsValid) continue;
+                if (!c.Active) continue;
+                buffer.Add(c);
+            }
+        }
 
         private void DismissAll()
         {

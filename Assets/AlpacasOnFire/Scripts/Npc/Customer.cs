@@ -53,6 +53,9 @@ namespace AlpacasOnFire.Npc
             }
         }
 
+        /// <summary>還剩幾秒才會走人。HUD 的訂單卡要顯示絕對秒數。</summary>
+        public float PatienceRemaining => Mathf.Max(0f, PatienceTimer.RemainingTime(Runner) ?? 0f);
+
         public override void Spawned()
         {
             _npc = GetComponent<WoolNpc>();
@@ -90,8 +93,18 @@ namespace AlpacasOnFire.Npc
             if (!served)
             {
                 LevelDirector.Instance?.AddMoney(-GameTuning.CustomerLeavePenalty, "顧客等太久");
-                GameAudio.PlayAt(SfxId.OrderTimeout, transform.position);
+
+                // 扣了 30 塊卻沒有任何畫面回饋的話，玩家只會看到錢莫名其妙變少。
+                // 走 RPC 是因為 Leave() 只在狀態權威跑，提示要讓所有人看到。
+                RPC_Timeout(Wanted.Describe());
             }
+        }
+
+        [Rpc(RpcSources.StateAuthority, RpcTargets.All)]
+        private void RPC_Timeout(string desc)
+        {
+            GameAudio.PlayAt(SfxId.OrderTimeout, transform.position);
+            CustomerQueue.RaiseTimeout(desc);
         }
 
         /// <summary>走遠之後恢復成一般的羊。</summary>

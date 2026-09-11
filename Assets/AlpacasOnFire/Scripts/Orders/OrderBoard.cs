@@ -49,9 +49,38 @@ namespace AlpacasOnFire.Orders
             if (Instance == this) Instance = null;
         }
 
+        /// <summary>
+        /// 場上有顧客系統的時候，需求由顧客決定，訂單板要整個讓開。
+        ///
+        /// **這是「白色訂單交不出去」那個 bug 的修正點。** Village 場景是從 Stall_Test
+        /// 複製出來的，所以它身上還帶著一塊 OrderBoard。而 DeliveryCounter.RouteDelivery()
+        /// 只要 CustomerQueue 活著就一律走顧客比對，**永遠不會回頭問 OrderBoard**——
+        /// 於是訂單板生出來的單子從一開始就交不掉，時間到還倒扣一次超時罰款。
+        ///
+        /// 更糟的是它幾乎只生白色的：PickColor() 在「有擺攤裝備、但沒有果汁機＋人偶」
+        /// 時會直接回傳 White，而 Village 的 loadout 兩台都沒有。所以玩家看到的是
+        /// 一排白色 T-shirt 訂單卡，織了白衣服送過去卻被判「沒人要這件」。
+        ///
+        /// 以前沒人踩到，是因為白毛拿不到（野生動物沒有白毛、玩家的毛掉在地上），
+        /// 玩家根本織不出白衣服去試。白毛接上共同背包之後就立刻浮出來了。
+        /// </summary>
+        private static bool CustomersOwnDemand()
+        {
+            var queue = Npc.CustomerQueue.Instance;
+            return queue != null && queue.Object != null && queue.Object.IsValid;
+        }
+
         public override void FixedUpdateNetwork()
         {
             if (!HasStateAuthority) return;
+
+            // 顧客系統接管需求 -> 訂單板不生單，也把已經生出來的清掉
+            // （清掉才不會留著幾張交不掉、還會扣錢的卡片）
+            if (CustomersOwnDemand())
+            {
+                if (ActiveCount() > 0) ClearAll();
+                return;
+            }
 
             var director = LevelDirector.Instance;
             if (director != null && !director.Running)

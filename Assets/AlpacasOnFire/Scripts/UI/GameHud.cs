@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using AlpacasOnFire.Core;
 using AlpacasOnFire.Items;
+using AlpacasOnFire.Npc;
 using AlpacasOnFire.Orders;
 using AlpacasOnFire.Player;
 using UnityEngine;
@@ -46,6 +47,13 @@ namespace AlpacasOnFire.UI
             BuildUI();
             OrderBoard.OnDeliveryResult += HandleDelivery;
             OrderBoard.OnOrderExpired += HandleExpired;
+
+            // v6：Village 的成交／失敗走顧客系統，訂單板那兩個事件永遠不會觸發。
+            // 沒有接這幾條的話，Village 裡交貨與顧客流失完全沒有畫面回饋。
+            CustomerQueue.OnCustomerServed += HandleCustomerServed;
+            CustomerQueue.OnCustomerLeft += HandleNoMatch;
+            CustomerQueue.OnCustomerTimeout += HandleExpired;
+
             LevelDirector.OnMoneyChanged += HandleMoney;
         }
 
@@ -53,6 +61,9 @@ namespace AlpacasOnFire.UI
         {
             OrderBoard.OnDeliveryResult -= HandleDelivery;
             OrderBoard.OnOrderExpired -= HandleExpired;
+            CustomerQueue.OnCustomerServed -= HandleCustomerServed;
+            CustomerQueue.OnCustomerLeft -= HandleNoMatch;
+            CustomerQueue.OnCustomerTimeout -= HandleExpired;
             LevelDirector.OnMoneyChanged -= HandleMoney;
         }
 
@@ -195,7 +206,63 @@ namespace AlpacasOnFire.UI
             UpdateFlashAndToast();
         }
 
+        /// <summary>
+        /// 訂單卡有兩個來源，看場上跑的是哪一套需求系統：
+        ///   Village -> CustomerQueue（站在窗口外排隊的顧客）
+        ///   Stall_Test -> OrderBoard（既有的訂單板）
+        ///
+        /// 判斷條件跟 DeliveryCounter.RouteDelivery() 與 OrderBoard.CustomersOwnDemand()
+        /// **必須是同一個**，否則會出現「卡片上有、交過去卻說沒人要」的落差 ——
+        /// 那正是先前白色訂單交不掉的那個 bug。
+        /// </summary>
         private void UpdateOrders()
+        {
+            var queue = CustomerQueue.Instance;
+            if (queue != null && queue.Object != null && queue.Object.IsValid)
+                UpdateCustomerCards(queue);
+            else
+                UpdateOrderBoardCards();
+        }
+
+        private readonly List<Customer> _customerBuffer = new();
+
+        private void UpdateCustomerCards(CustomerQueue queue)
+        {
+            queue.CollectActive(_customerBuffer);
+
+            for (int i = 0; i < _cards.Count; i++)
+            {
+                var card = _cards[i];
+
+                if (i >= _customerBuffer.Count)
+                {
+                    card.Root.SetActive(false);
+                    card.BoundId = -1;
+                    continue;
+                }
+
+                var c = _customerBuffer[i];
+
+                // 用 NetworkId 當識別碼：同一位顧客在同一格的期間不重建文字。
+                // 顧客是「被徵召的羊」，同一隻羊可以當好幾次顧客，但每次徵召之間
+                // 一定會經過 Leave -> Release（Active 變 false），所以卡片會先被收掉、
+                // 下一次再綁上來，不會殘留上一單的描述。
+                int id = (int)c.Object.Id.Raw;
+
+                card.Root.SetActive(true);
+                if (card.BoundId != id)
+                {
+                    card.BoundId = id;
+                    card.Title.text = c.Wanted.Describe();
+                    card.Swatch.color = PlaceholderPalette.Dye(c.Wanted.Color);
+                }
+
+                SetCountdown(card, c.Patience01);
+                card.Sub.text = $"${c.Price}　{c.PatienceRemaining:F0}s";
+            }
+        }
+
+        private void UpdateOrderBoardCards()
         {
             var board = OrderBoard.Instance;
             for (int i = 0; i < _cards.Count; i++)
@@ -220,17 +287,21 @@ namespace AlpacasOnFire.UI
                 {
                     card.BoundId = e.Id;
                     card.Title.text = e.Spec.Describe();
-                    card.Sub.text = $"${e.Reward}";
                     card.Swatch.color = PlaceholderPalette.Dye(e.Spec.Color);
                 }
 
-                float t = e.Remaining01;
-                card.CountdownBorder.fillAmount = t;
-                card.CountdownBorder.color = t > 0.5f
-                    ? Color.Lerp(new Color(0.95f, 0.85f, 0.2f), new Color(0.3f, 0.9f, 0.4f), (t - 0.5f) * 2f)
-                    : Color.Lerp(new Color(0.95f, 0.25f, 0.2f), new Color(0.95f, 0.85f, 0.2f), t * 2f);
+                SetCountdown(card, e.Remaining01);
                 card.Sub.text = $"${e.Reward}　{e.Remaining:F0}s";
             }
+        }
+
+        /// <summary>倒數框：綠 -> 黃 -> 紅。兩個來源共用同一套配色，讀起來才一致。</summary>
+        private static void SetCountdown(OrderCard card, float t)
+        {
+            card.CountdownBorder.fillAmount = t;
+            card.CountdownBorder.color = t > 0.5f
+                ? Color.Lerp(new Color(0.95f, 0.85f, 0.2f), new Color(0.3f, 0.9f, 0.4f), (t - 0.5f) * 2f)
+                : Color.Lerp(new Color(0.95f, 0.25f, 0.2f), new Color(0.95f, 0.85f, 0.2f), t * 2f);
         }
 
         private void UpdateStatus()
@@ -357,6 +428,15 @@ namespace AlpacasOnFire.UI
             Toast($"訂單超時：{desc}", new Color(1f, 0.55f, 0.3f));
             _flashTimer = 0.8f;
         }
+
+        /// <summary>顧客成交。價格寫進提示，玩家馬上看得到這一單值多少。</summary>
+        private void HandleCustomerServed(int price, string desc)
+        {
+            Toast($"成交：{desc}　+${price}", new Color(0.4f, 1f, 0.5f));
+        }
+
+        /// <summary>交了沒人要的衣服。跟訂單板的失敗走同一套措辭與紅閃。</summary>
+        private void HandleNoMatch(string desc) => HandleDelivery(false, desc);
 
         private void HandleMoney(int delta, string reason, bool negative)
         {
