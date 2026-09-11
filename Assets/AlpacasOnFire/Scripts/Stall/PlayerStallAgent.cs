@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using AlpacasOnFire.Core;
 using AlpacasOnFire.Interaction;
 using AlpacasOnFire.Player;
@@ -20,6 +21,16 @@ namespace AlpacasOnFire.Stall
     /// </summary>
     public class PlayerStallAgent : NetworkBehaviour
     {
+        /// <summary>
+        /// 場上所有玩家的擺攤狀態。
+        ///
+        /// 有人需要問「現在有沒有人手上正舉著某一台裝備」—— 最典型的是
+        /// StallManager.SyncCrates()：它靠「場上找不到這個顏色的箱子」來決定要不要補一個，
+        /// 而拿在手上的箱子已經被 Despawn 了、在場上找不到。沒有這份清單的話，
+        /// 玩家一把箱子拿起來，下一個 tick 就會被補生一個，放下之後就變成兩個。
+        /// </summary>
+        public static readonly List<PlayerStallAgent> All = new();
+
         [Networked] public int PendingTypeRaw { get; set; }
         [Networked] public int PendingFacing { get; set; }
 
@@ -43,10 +54,12 @@ namespace AlpacasOnFire.Stall
         public override void Spawned()
         {
             _player = GetComponent<PlayerController>();
+            if (!All.Contains(this)) All.Add(this);
         }
 
         public override void Despawned(NetworkRunner runner, bool hasState)
         {
+            All.Remove(this);
             DestroyHelpers();
         }
 

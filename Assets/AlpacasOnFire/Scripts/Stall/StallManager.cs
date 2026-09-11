@@ -293,10 +293,40 @@ namespace AlpacasOnFire.Stall
             {
                 if (!suitcase.HasColor(slot)) continue;
                 var colour = suitcase.ColorAt(slot);
+
+                // 場上找得到就不補。**拿在某個玩家手上的也算找得到** ——
+                // 見 IsCratePending 的註解，漏掉這個條件就會分裂出第二個箱子。
                 if (FindCrate(colour) != null) continue;
+                if (IsCratePending(colour)) continue;
 
                 SpawnCrateFor(colour);
             }
+        }
+
+        /// <summary>
+        /// 有沒有人正舉著這個顏色的素材箱等著放下。
+        ///
+        /// **這是「箱子會分裂」那個 bug 的修正點。** 拿起裝備的流程是
+        /// 「Despawn 場上那一個 + 進入放置預覽」，所以舉在手上的期間，
+        /// 箱子在場上是**不存在**的。SyncCrates 每個 tick 都跑，下一個 tick 就會
+        /// 判定「選了這個顏色卻沒有箱子」而補生一個；等玩家把手上那個放下，
+        /// 同色箱子就變成兩個。兩個都是全新的（Remaining = 0、Loaded = false），
+        /// 所以看起來就是「多出一個拿不了東西的箱子」。
+        ///
+        /// 修法是把「在某人手上」也算成存在。放下、取消、甚至玩家中途斷線，
+        /// 都會讓 HasPending 變回 false，該補的下一個 tick 自然會補回來。
+        /// </summary>
+        private static bool IsCratePending(DyeColorType colour)
+        {
+            for (int i = 0; i < PlayerStallAgent.All.Count; i++)
+            {
+                var agent = PlayerStallAgent.All[i];
+                if (agent == null || agent.Object == null || !agent.Object.IsValid) continue;
+                if (!agent.HasPending) continue;
+                if (agent.PendingType != LevelElementType.MaterialCrate) continue;
+                if (agent.PendingVariant == (int)colour) return true;
+            }
+            return false;
         }
 
         /// <summary>場上有沒有任何一個素材箱。</summary>
