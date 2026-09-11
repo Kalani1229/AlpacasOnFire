@@ -53,7 +53,8 @@ namespace AlpacasOnFire.Stall
             LevelElementType.Mannequin        => "人偶",
             LevelElementType.DeliveryCounter  => "交貨窗口",
             LevelElementType.Conveyor         => "輸送帶",
-            LevelElementType.WeavingMachine   => "織布機",
+            LevelElementType.WeavingMachine      => "T恤織布機",
+            LevelElementType.WeavingMachineShirt => "襯衫織布機",
             LevelElementType.MaterialCrate    => "素材箱",
             _                                 => type.ToString(),
         };
@@ -112,6 +113,8 @@ namespace AlpacasOnFire.Stall
             LevelElementType.DeliveryCounter  => PlaceholderPalette.Mailbox,
             LevelElementType.Conveyor         => PlaceholderPalette.BoxDispenser,
             LevelElementType.WeavingMachine   => PlaceholderPalette.SewingMachine,
+            // 襯衫織布機用偏冷的色調，佈置時一眼分得出兩台織布機誰是誰
+            LevelElementType.WeavingMachineShirt => new Color(0.32f, 0.45f, 0.62f),
             LevelElementType.MaterialCrate    => PlaceholderPalette.Box,
             _                                 => Color.white,
         };

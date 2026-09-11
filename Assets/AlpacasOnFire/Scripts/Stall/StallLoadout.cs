@@ -77,38 +77,45 @@ namespace AlpacasOnFire.Stall
         /// 沒有果汁機與人偶（v6 沒有染色這條線）、也沒有素材箱
         /// （素材出口整合進手提箱本身，見 V6_WOOL_ECONOMY.md）。
         ///
-        /// 只有 4 台裝備，襯布空很多 —— 這是刻意的，
-        /// 動線優化的重點變成「織布機離手提箱多近」。
+        /// 兩台織布機，一台織 T-shirt、一台織襯衫。一台機器只做一種版型，
+        /// 所以「要接哪些版型的單」變成佈置時的取捨，不是白拿的。
         ///
-        ///     z=6            [交貨窗口]
-        ///     z=5            [輸送帶↑]
-        ///     z=4            [輸送帶↑]
-        ///     z=3            [織布機]
-        ///                    x=3
+        ///     z=6                   [交貨窗口]
+        ///     z=5                   [輸送帶↑]
+        ///     z=4                   [輸送帶↑]
+        ///     z=3   [襯衫織布機]    [T恤織布機]
+        ///            x=2             x=3
         ///
-        /// 手提箱固定在襯布背緣外（不佔格子），玩家從那裡拿料、走到織布機、
-        /// 成品自動上輸送帶送到交貨窗口。
+        /// **只有 T恤織布機接得到輸送帶**（它在 x=3 這條線上）。襯衫織布機的成品
+        /// 要玩家自己拿去交貨窗口，或者丟到輸送帶上。這是刻意留的不對稱 ——
+        /// 預設佈局不該是最佳解，玩家把兩台對調、或自己補一條輸送帶都是有意義的決定。
+        ///
+        /// 手提箱固定在襯布背緣外（不佔格子），玩家從素材箱拿料、走到織布機、
+        /// 成品上輸送帶送到交貨窗口。
         /// </summary>
         public static readonly StallLoadout Village = new(
             "Village",
             new[]
             {
                 LevelElementType.WeavingMachine,
+                LevelElementType.WeavingMachineShirt,
                 LevelElementType.DeliveryCounter,
                 LevelElementType.Conveyor,
                 LevelElementType.Conveyor,
             },
             new[]
             {
-                StallSlotRecord.Create(LevelElementType.DeliveryCounter, 3, 6, (int)StallFacing.North),
-                StallSlotRecord.Create(LevelElementType.Conveyor,        3, 5, (int)StallFacing.North),
-                StallSlotRecord.Create(LevelElementType.Conveyor,        3, 4, (int)StallFacing.North),
-                StallSlotRecord.Create(LevelElementType.WeavingMachine,  3, 3, (int)StallFacing.North),
+                StallSlotRecord.Create(LevelElementType.DeliveryCounter,     3, 6, (int)StallFacing.North),
+                StallSlotRecord.Create(LevelElementType.Conveyor,            3, 5, (int)StallFacing.North),
+                StallSlotRecord.Create(LevelElementType.Conveyor,            3, 4, (int)StallFacing.North),
+                StallSlotRecord.Create(LevelElementType.WeavingMachine,      3, 3, (int)StallFacing.North),
+                StallSlotRecord.Create(LevelElementType.WeavingMachineShirt, 2, 3, (int)StallFacing.North),
             },
             new[]
             {
                 LevelElementType.DeliveryCounter,
                 LevelElementType.WeavingMachine,
+                LevelElementType.WeavingMachineShirt,
             },
             suitcaseIsStash: true);
     }

@@ -201,7 +201,8 @@ namespace AlpacasOnFire.Core
         public const float NpcGravity            = 20f;    // 給 NetworkCharacterController 用
 
         // ---------- 全隊共用背包 ----------
-        public const int   StashCapacityPerColor = 20;
+        // 每種顏色各自的上限（不是總量）。滿了就整筆拒收，毛留在動物身上。
+        public const int   StashCapacityPerColor = 16;
 
         // ---------- 素材箱 ----------
         // 沒有「一箱幾份」的上限：開張時該色背包有多少就裝多少。

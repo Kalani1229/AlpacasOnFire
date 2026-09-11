@@ -21,6 +21,9 @@ namespace AlpacasOnFire.Core
         TShirt = 1,
         Pants = 2,
         Hat = 3,
+
+        // 一律往後加，不重排 —— 既有的 prefab 與 LevelDefinition 存的是數值
+        Shirt = 4,   // 襯衫：襯衫織布機的產出
     }
 
     /// <summary>衣服顏色。White = 未染色的原色。</summary>
@@ -79,8 +82,13 @@ namespace AlpacasOnFire.Core
         // 24 與 25 是批 B 才會實作的裝備，這裡先把編號佔住 ——
         // 列舉值一旦用過就不能重排（存檔相容），先留位子比之後插隊安全。
         MaterialCrate  = 24,  // 素材箱：佈置時從背包擺出，互動一次跳一份羊毛
-        WeavingMachine = 25,  // 織布機：吃 1-2 份毛 -> 主色 + 點綴色的衣服
+        WeavingMachine = 25,  // T恤織布機：吃 1-2 份毛 -> 主色 + 點綴色的 T-shirt
         WoolNpc        = 26,  // 會走動、可剃毛、也會來當顧客的 NPC
+
+        // 第二台織布機。跟 25 共用 WeavingMachine.cs，只是 _outputPattern 不同 ——
+        // 一台機器只做一種版型，想要兩種版型就得擺兩台，這是佔格子的取捨。
+        // **不要把 25 改名或改值**：它已經被寫進 prefab 與佈局存檔了。
+        WeavingMachineShirt = 27,  // 襯衫織布機
     }
 
     /// <summary>

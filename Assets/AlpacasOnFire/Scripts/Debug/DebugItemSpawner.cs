@@ -65,10 +65,11 @@ namespace AlpacasOnFire.DebugTools
         private static readonly Binding[] Keys =
         {
             Binding.MakeItem(Key.Digit1, "1", ItemKind.Wool, "白毛"),
-            Binding.MakeDevice(Key.Digit2, "2", LevelElementType.WeavingMachine, "織布機"),
+            Binding.MakeDevice(Key.Digit2, "2", LevelElementType.WeavingMachine, "T恤織布機"),
             Binding.MakeItem(Key.Digit3, "3", ItemKind.Wool, "紅毛", DyeColorType.Red),
             Binding.MakeItem(Key.Digit4, "4", ItemKind.Wool, "藍毛", DyeColorType.Blue),
             Binding.MakeItem(Key.Digit5, "5", ItemKind.Wool, "黃毛", DyeColorType.Yellow),
+            Binding.MakeDevice(Key.Digit6, "6", LevelElementType.WeavingMachineShirt, "襯衫織布機"),
         };
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]

@@ -34,7 +34,16 @@ namespace AlpacasOnFire.EditorTools
             Add(failures, "Machine_ToolRack", () => BuildToolRacks(outElements));
             Add(failures, "Stall_ServiceBell", () => outElements.Add(BuildServiceBell()));
             Add(failures, "Npc_WoolNpc", () => outElements.Add(BuildWoolNpc()));
-            Add(failures, "Machine_WeavingMachine", () => outElements.Add(BuildWeavingMachine()));
+            // 兩台織布機共用建置流程，只差版型與機體顏色（暖褐＝T恤、冷藍＝襯衫）
+            Add(failures, "Machine_WeavingMachine", () => outElements.Add(
+                BuildWeavingMachine(LevelElementType.WeavingMachine, PatternType.TShirt,
+                                    "Machine_WeavingMachine", "M_WeavingMachine",
+                                    new Color(0.55f, 0.40f, 0.22f))));
+
+            Add(failures, "Machine_WeavingMachineShirt", () => outElements.Add(
+                BuildWeavingMachine(LevelElementType.WeavingMachineShirt, PatternType.Shirt,
+                                    "Machine_WeavingMachineShirt", "M_WeavingMachineShirt",
+                                    new Color(0.32f, 0.45f, 0.62f))));
             Add(failures, "Machine_MaterialCrate", () => outElements.Add(BuildMaterialCrate()));
             Add(failures, "Level_SuitcaseSpawn", () => outElements.Add(BuildSuitcaseSpawnMarker()));
 
@@ -338,9 +347,18 @@ namespace AlpacasOnFire.EditorTools
         /// 玩家要能不看 UI 就確認「我放了什麼、順序對不對」，
         /// 因為放入順序決定成品是「紅底白紋」還是「白底紅紋」。
         /// </summary>
-        private static GameCatalog.ElementEntry BuildWeavingMachine()
+        /// <summary>
+        /// 兩台織布機共用這一支，只差 prefab 名稱、機體顏色與產出版型。
+        ///
+        /// **一台機器只做一種版型**（跟縫紉機同一條規則），所以想同時接 T-shirt 與襯衫的單
+        /// 就得擺兩台、吃掉兩格。機體顏色刻意差很多，佈置與營業時都要一眼分得出來 ——
+        /// 兩台外觀一樣的話，玩家會把毛放錯機器，而那個錯誤要等 4 秒後才看得到。
+        /// </summary>
+        private static GameCatalog.ElementEntry BuildWeavingMachine(
+            LevelElementType type, PatternType pattern, string prefabName,
+            string bodyMatName, Color bodyColor)
         {
-            var bodyMat = Mat("M_WeavingMachine", new Color(0.55f, 0.40f, 0.22f));
+            var bodyMat = Mat(bodyMatName, bodyColor);
             var slotMat = Mat("M_WeaveSlot", PlaceholderPalette.Wool);
             var lightMat = Mat("M_StatusLight", new Color(0.3f, 0.9f, 0.4f));
 
@@ -349,7 +367,7 @@ namespace AlpacasOnFire.EditorTools
             float h = GameTuning.MachineHeight;
             float w = GameTuning.MachineFootprint;
 
-            var root = new GameObject("Machine_WeavingMachine");
+            var root = new GameObject(prefabName);
 
             var body = Prim(PrimitiveType.Cube, "Body", root.transform,
                 new Vector3(0f, h * 0.5f, 0f), new Vector3(w, h, w), bodyMat);
@@ -392,15 +410,15 @@ namespace AlpacasOnFire.EditorTools
 
             SetRef(m, "_progressBar", bar.transform);
 
-            SetEnum(m, "_outputPattern", (int)PatternType.TShirt);
+            SetEnum(m, "_outputPattern", (int)pattern);
 
-            AddDeployHandle(root, LevelElementType.WeavingMachine,
+            AddDeployHandle(root, type,
                             new Vector3(0f, h * 0.5f, 0f), new Vector3(w * 1.25f, h, w * 1.25f));
 
-            var prefab = SavePrefab(root, "Machine_WeavingMachine");
+            var prefab = SavePrefab(root, prefabName);
             return new GameCatalog.ElementEntry
             {
-                type = LevelElementType.WeavingMachine,
+                type = type,
                 prefab = prefab,
             };
         }

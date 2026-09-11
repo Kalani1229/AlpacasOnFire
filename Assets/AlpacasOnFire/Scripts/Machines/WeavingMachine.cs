@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using AlpacasOnFire.Core;
 using AlpacasOnFire.Interaction;
 using AlpacasOnFire.Items;
@@ -35,9 +36,21 @@ namespace AlpacasOnFire.Machines
     /// </summary>
     public class WeavingMachine : MachineBase, IThrownItemReceiver
     {
+        /// <summary>
+        /// 場上所有的織布機。顧客系統要靠它決定「現在做得出哪些版型」——
+        /// 沒擺襯衫織布機就不該出襯衫訂單。
+        ///
+        /// 不走 DeployableDevice.All 是因為 DeployableDevice 掛在 DeployHandle **子物件**上，
+        /// `dev.GetComponent&lt;WeavingMachine&gt;()` 會拿不到（機台本體在父物件）。
+        /// </summary>
+        public static readonly List<WeavingMachine> All = new();
+
         [Header("Weaving")]
-        [Tooltip("這台機器產出的版型。一台機器只做一種。")]
+        [Tooltip("這台機器產出的版型。一台機器只做一種 —— 想要兩種版型就得擺兩台。")]
         [SerializeField] private PatternType _outputPattern = PatternType.TShirt;
+
+        /// <summary>這台織得出哪一種衣服。</summary>
+        public PatternType OutputPattern => _outputPattern;
 
         [Tooltip("機體上的兩格色塊：第 0 格主色、第 1 格點綴色。長度要是 2。")]
         [SerializeField] private Renderer[] _woolSlotVisuals;
@@ -68,6 +81,19 @@ namespace AlpacasOnFire.Machines
         /// 手放與丟進來共用這個條件。
         /// </summary>
         private bool CanAcceptWool => !HasOutput && WoolCount < GameTuning.WeaveMaxWool;
+
+        // ---------------- 生命週期 ----------------
+
+        public override void Spawned()
+        {
+            base.Spawned();
+            if (!All.Contains(this)) All.Add(this);
+        }
+
+        public override void Despawned(NetworkRunner runner, bool hasState)
+        {
+            All.Remove(this);
+        }
 
         // ---------------- 互動 ----------------
 

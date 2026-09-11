@@ -214,6 +214,34 @@ namespace AlpacasOnFire.Npc
                 _availableColors.Add(DyeColorType.White);
         }
 
+        private readonly List<PatternType> _availablePatterns = new();
+
+        /// <summary>
+        /// 從**場上實際擺出來的織布機**抽版型。
+        ///
+        /// 跟顏色是同一條原則：只要求做得出來的東西。擺了 T恤織布機就出 T-shirt 單，
+        /// 擺了襯衫織布機就出襯衫單，兩台都擺就兩種都出。沒擺襯衫織布機卻出襯衫單的話，
+        /// 那張單從生出來的那一刻就是無解的。
+        ///
+        /// 一台都沒有的話退回 T-shirt —— 那時候根本織不出東西，出什麼都一樣，
+        /// 但至少不會是 PatternType.None（那不是一件衣服，Describe() 會變成「白色無」）。
+        /// </summary>
+        private PatternType PickPattern()
+        {
+            _availablePatterns.Clear();
+
+            for (int i = 0; i < WeavingMachine.All.Count; i++)
+            {
+                var m = WeavingMachine.All[i];
+                if (m == null || m.Object == null || !m.Object.IsValid) continue;
+                if (m.OutputPattern == PatternType.None) continue;
+                if (!_availablePatterns.Contains(m.OutputPattern)) _availablePatterns.Add(m.OutputPattern);
+            }
+
+            if (_availablePatterns.Count == 0) return PatternType.TShirt;
+            return _availablePatterns[UnityEngine.Random.Range(0, _availablePatterns.Count)];
+        }
+
         /// <summary>
         /// 現在有沒有白毛的來源。
         ///
@@ -270,7 +298,7 @@ namespace AlpacasOnFire.Npc
                 }
             }
 
-            spec = GarmentSpec.Create(PatternType.TShirt, main, AccessoryType.None, accent);
+            spec = GarmentSpec.Create(PickPattern(), main, AccessoryType.None, accent);
             price = GameTuning.WoolPrice(main) + (spec.HasAccent ? GameTuning.WoolPrice(accent) : 0);
             return true;
         }
