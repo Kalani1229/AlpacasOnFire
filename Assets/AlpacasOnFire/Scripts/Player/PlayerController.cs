@@ -3,6 +3,7 @@ using AlpacasOnFire.Core;
 using AlpacasOnFire.Interaction;
 using AlpacasOnFire.Items;
 using AlpacasOnFire.Networking;
+using AlpacasOnFire.Prank;
 using AlpacasOnFire.Stall;
 using Fusion;
 using UnityEngine;
@@ -18,7 +19,7 @@ namespace AlpacasOnFire.Player
     /// </summary>
     [RequireComponent(typeof(NetworkCharacterController))]
     [RequireComponent(typeof(PlayerCarry))]
-    public class PlayerController : NetworkBehaviour, IInteractable, IGarmentHost
+    public class PlayerController : NetworkBehaviour, IInteractable, IGarmentHost, IStaggerable
     {
         public static PlayerController Local { get; private set; }
 
@@ -62,6 +63,9 @@ namespace AlpacasOnFire.Player
         /// <summary>剃毛器伸出來的殘餘時間。走 [Networked] 才能讓所有人都看到這個動作。</summary>
         [Networked] private TickTimer ShearVisualTimer { get; set; }
 
+        /// <summary>吐口水的冷卻。</summary>
+        [Networked] private TickTimer SpitTimer { get; set; }
+
         [Networked] private NetworkButtons PreviousButtons { get; set; }
 
         private NetworkCharacterController _ncc;
@@ -71,6 +75,7 @@ namespace AlpacasOnFire.Player
         private bool _bodyFaded;
         private PlayerInteractor _interactor;
         private PlayerStallAgent _stallAgent;
+        private StaggerStatus _stagger;
         private MaterialPropertyBlock _mpb;
         private PlayerCameraRig _rig;
 
@@ -91,6 +96,7 @@ namespace AlpacasOnFire.Player
             ConfigureController();
             _carry = GetComponent<PlayerCarry>();
             _stallAgent = GetComponent<PlayerStallAgent>();   // 舊 prefab 上可能沒有，允許 null
+            _stagger = GetComponent<StaggerStatus>();         // 同上
             CacheFadeRenderers();
             _interactor = new PlayerInteractor(this);
             if (!All.Contains(this)) All.Add(this);
@@ -161,7 +167,9 @@ namespace AlpacasOnFire.Player
                 var pressed = input.Buttons.GetPressed(PreviousButtons);
                 PreviousButtons = input.Buttons;
 
-                if (HasStateAuthority)
+                // 失控中不能做任何事：不能互動、不能丟、不能用工具。
+                // 移動已經在 Move() 裡被吃掉了，這裡擋的是動作。
+                if (HasStateAuthority && !IsStaggered)
                 {
                     var ctx = _interactor.BuildContext();
 
@@ -174,20 +182,34 @@ namespace AlpacasOnFire.Player
                     if (pressed.IsSet(GameButton.Interact))
                         HandlePrimaryPress(in ctx);
 
-                    // E（隨身剃毛器）已經移除 —— 剃毛改成左鍵的一般互動，
-                    // GameButton.DefaultTool 這個列舉值保留但不再有人送出。
+                    // E：吐口水。羊駝自帶的能力，不佔手、跟手上拿什麼無關。
+                    // 借用 GameButton.DefaultTool 這個列舉值（原本是「拿出隨身剃毛器」，
+                    // 剃毛改成內建之後就空著了）—— NetInput 是連線架構的一部分，
+                    // 不動它的列舉，只換綁定的意義。
+                    if (pressed.IsSet(GameButton.DefaultTool))
+                        TrySpit(in ctx);
 
-                    // v6：右鍵的次要互動（手提箱選色／切色）。
-                    // 手上拿著 IHoldTool 時 FindSecondaryTarget 會直接回 null，
-                    // 所以拿著噴槍時右鍵永遠是噴漆，不會被準心前方的東西搶走。
+                    // 右鍵，依序：惡搞道具 -> 次要互動。
                     //
-                    // 放置預覽中右鍵是「取消放置」（PlayerStallAgent 自己在本機讀），
-                    // 這裡要讓開 —— 不然舉著機台站在手提箱旁邊按右鍵會同時取消放置
-                    // 又打開選色面板。
-                    if (pressed.IsSet(GameButton.UseTool) && !IsPlacingDevice)
-                        _interactor.TrySecondaryInteract();
+                    // 手上拿著惡搞道具時右鍵**永遠屬於那個道具**（跟噴槍同一個原則），
+                    // 所以 TryPrank 回 true 就不再往下跑，不會出現「想打人結果打開了
+                    // 手提箱的選色面板」。
+                    //
+                    // 放置預覽中右鍵**整個歸「取消放置」**（PlayerStallAgent 自己在本機讀）。
+                    // 這裡要完全讓開 —— 舉著機台的時候手上可能還拿著大蔥，
+                    // 不讓開的話按一下右鍵會同時取消放置又揮一下大蔥。
+                    bool useToolHeld = input.Buttons.IsSet(GameButton.UseTool);
 
-                    _carry.TickTool(in ctx, input.Buttons.IsSet(GameButton.UseTool), Runner.DeltaTime);
+                    if (!IsPlacingDevice)
+                    {
+                        if (pressed.IsSet(GameButton.UseTool) && !_carry.TryPrank(in ctx))
+                            _interactor.TrySecondaryInteract();
+
+                        // 卡車的蓄力吃**右鍵按住**，跟出手同一個鍵。
+                        _carry.TickPrank(in ctx, useToolHeld, Runner.DeltaTime);
+                    }
+
+                    _carry.TickTool(in ctx, useToolHeld, Runner.DeltaTime);
                 }
             }
             else if (HasStateAuthority)
@@ -292,6 +314,12 @@ namespace AlpacasOnFire.Player
             _ncc.rotationSpeed = 0f;
         }
 
+        /// <summary>
+        /// 失控中：控制權被拿走，但**視覺完全保留**。
+        /// 黑畫面會讓被害者連笑話都看不到，那就不好笑了，只是煩。
+        /// </summary>
+        public bool IsStaggered => _stagger != null && _stagger.Staggered;
+
         private void Move(Vector2 moveInput)
         {
             if (_ncc == null) return;
@@ -301,9 +329,23 @@ namespace AlpacasOnFire.Player
             _ncc.maxSpeed = GameTuning.MoveSpeed *
                             (_carry != null && _carry.HasItem ? GameTuning.CarrySlowFactor : 1f);
 
+            // 失控中把輸入整個丟掉。注意**不是直接 return** ——
+            // 還是要呼叫 Move()，重力與擊退才會繼續作用，不然人會定在半空中。
+            if (IsStaggered) moveInput = Vector2.zero;
+
             // 移動方向永遠相對角色目前朝向
             var wish = transform.rotation * new Vector3(moveInput.x, 0f, moveInput.y);
             wish = ClampToStallZone(wish);
+
+            // 擊退疊在移動之上。用 maxSpeed 放大而不是直接寫 Velocity ——
+            // 寫 Velocity 會跟 NCC 內部用位移反推速度的做法打架（見 SuppressStepUpLaunch）。
+            var knock = _stagger != null ? _stagger.CurrentKnockback : Vector3.zero;
+            if (knock.sqrMagnitude > 0.0001f)
+            {
+                _ncc.maxSpeed = Mathf.Max(_ncc.maxSpeed, knock.magnitude);
+                wish = (wish + knock.normalized * 1.2f).normalized;
+            }
+
             _ncc.Move(wish);
 
             SuppressStepUpLaunch();
@@ -384,6 +426,58 @@ namespace AlpacasOnFire.Player
             FleeceTimer = TickTimer.CreateFromSeconds(Runner, GameTuning.FleeceRegenSeconds);
         }
 
+        /// <summary>冷卻好了沒。HUD 要用。</summary>
+        public bool SpitReady => SpitTimer.ExpiredOrNotRunning(Runner);
+
+        /// <summary>冷卻的剩餘比例 0~1（1 = 剛吐完）。</summary>
+        public float SpitCooldown01
+        {
+            get
+            {
+                float left = SpitTimer.RemainingTime(Runner) ?? 0f;
+                return Mathf.Clamp01(left / Mathf.Max(0.01f, GameTuning.SpitCooldownSeconds));
+            }
+        }
+
+        /// <summary>
+        /// 吐口水。**羊駝自帶的能力，不是道具** ——
+        /// 不用撿、不用拿、不佔手，手上抱著羊毛也吐得出來。
+        /// 這也是它跟大蔥、卡車最大的差別：那兩個要騰出手，這個不用。
+        ///
+        /// 綁 E 而不是右鍵：右鍵已經給了手持惡搞道具與次要互動，
+        /// 而自帶能力本來就該有自己的鍵位，不該跟「手上拿什麼」有關。
+        ///
+        /// **噴出去的是一顆看得見的投射物**，不是立即命中。所以它需要瞄準：
+        /// 飛行要時間、會往下掉、會落空。這才配得上它零成本、無限量的定位。
+        ///
+        /// 只在 StateAuthority 呼叫。
+        /// </summary>
+        public void TrySpit(in InteractionContext ctx)
+        {
+            if (!HasStateAuthority) return;
+            if (IsStaggered) return;
+            if (!SpitTimer.ExpiredOrNotRunning(Runner)) return;
+
+            // 冷卻先算 —— 噴空氣也要算，不然玩家會用亂噴來確認前面有沒有人
+            SpitTimer = TickTimer.CreateFromSeconds(Runner, GameTuning.SpitCooldownSeconds);
+            GameAudio.PlayAt(SfxId.Spray, transform.position);
+
+            var prefab = GameCatalog.Instance != null ? GameCatalog.Instance.GetItem(ItemKind.Spit) : null;
+            if (prefab == null)
+            {
+                Debug.LogError("[惡搞] GameCatalog 裡沒有口水投射物的 prefab。" +
+                               "請執行選單「羊駝很忙 / 1. 建置佔位資產」。");
+                return;
+            }
+
+            // 從嘴巴的高度噴出去，不是從腳底
+            var origin = HeadAnchor.position + AimDirection * 0.5f;
+            var dir = AimDirection;
+
+            Runner.Spawn(prefab, origin, Quaternion.LookRotation(dir, Vector3.up), null,
+                         (r, o) => o.GetComponent<SpitProjectile>()?.Launch(this, dir));
+        }
+
         /// <summary>
         /// 伸出剃毛器。**這是剃的那一方呼叫的**（不是被剃的那一方），
         /// 所以要傳 ctx.Player 而不是 this。
@@ -458,7 +552,46 @@ namespace AlpacasOnFire.Player
                             && !ShearVisualTimer.ExpiredOrNotRunning(Runner);
                 if (_shearsVisual.activeSelf != show) _shearsVisual.SetActive(show);
             }
+
+            RenderStagger();
         }
+
+        /// <summary>
+        /// 倒地的表現：整隻羊駝翻倒。
+        ///
+        /// 只轉 **視覺**、不動 transform 的 rotation —— 角色的朝向是共用朝向模型的一部分
+        /// （Yaw 直接決定鏡頭），轉了會讓被害者的畫面天旋地轉，那就從好笑變成想吐。
+        /// 所以倒的是身體，鏡頭照常。
+        /// </summary>
+        private void RenderStagger()
+        {
+            if (_bodyRenderer == null) return;
+
+            var body = _bodyRenderer.transform;
+            bool down = IsStaggered;
+
+            // 倒下快、爬起來慢一點 —— 笑點在爬起來的過程
+            float target = down ? 82f : 0f;
+            float speed = down ? 900f : 260f;
+            _bodyTilt = Mathf.MoveTowards(_bodyTilt, target, speed * Time.deltaTime);
+
+            if (Mathf.Abs(_bodyTilt) < 0.01f && !down)
+            {
+                if (_bodyTiltApplied) { body.localRotation = _bodyBaseRotation; _bodyTiltApplied = false; }
+                return;
+            }
+
+            if (!_bodyTiltApplied)
+            {
+                _bodyBaseRotation = body.localRotation;
+                _bodyTiltApplied = true;
+            }
+            body.localRotation = _bodyBaseRotation * Quaternion.Euler(_bodyTilt, 0f, 0f);
+        }
+
+        private float _bodyTilt;
+        private Quaternion _bodyBaseRotation = Quaternion.identity;
+        private bool _bodyTiltApplied;
 
         private void ApplyBodyColor()
         {
@@ -529,6 +662,59 @@ namespace AlpacasOnFire.Player
             return true;
         }
 
+
+        // ---------------- IStaggerable（被惡搞） ----------------
+
+        public Transform StaggerAnchor => GarmentAnchor;
+        public bool CanBeStaggered => Object != null && Object.IsValid;
+        public string StaggerDisplayName => "隊友";
+
+        public void ApplyBlind(float seconds)
+        {
+            if (!HasStateAuthority || _stagger == null) return;
+            _stagger.Blind(seconds);
+        }
+
+        public void ApplyKnockback(Vector3 direction, float speed, float seconds)
+        {
+            if (!HasStateAuthority || _stagger == null) return;
+            _stagger.Knockback(direction, speed, seconds);
+        }
+
+        /// <summary>
+        /// 被打倒。身上的毛一次全部掉在地上 —— 這就是惡搞隊友的「回收價值」：
+        /// 毛沒有消失，只是散了一地，有人得去撿。代價小、可回收、而且好笑。
+        /// </summary>
+        public void ApplyStagger(float seconds, bool dropWool)
+        {
+            if (!HasStateAuthority || _stagger == null) return;
+
+            _stagger.Stagger(seconds);
+
+            // 手上的東西也會脫手 —— 被卡車砸中還能死抓著羊毛不放很怪
+            if (_carry != null && _carry.HasItem) _carry.Drop();
+
+            if (dropWool) ScatterFleece();
+
+            GameAudio.PlayAt(SfxId.Shear, transform.position);
+        }
+
+        /// <summary>身上的毛一次全部掉在腳邊。只在 StateAuthority 呼叫。</summary>
+        private void ScatterFleece()
+        {
+            int count = Fleece;
+            if (count <= 0) return;
+
+            Fleece = 0;
+            FleeceTimer = TickTimer.CreateFromSeconds(Runner, GameTuning.FleeceRegenSeconds);
+
+            for (int i = 0; i < count; i++)
+            {
+                var offset = Random.insideUnitCircle * GameTuning.KnockdownWoolSpread;
+                var pos = transform.position + Vector3.up * 0.6f + new Vector3(offset.x, 0f, offset.y);
+                ItemFactory.Spawn(Runner, ItemKind.Wool, default, pos);
+            }
+        }
 
         // ---------------- IInteractable（別的玩家對你做事） ----------------
 

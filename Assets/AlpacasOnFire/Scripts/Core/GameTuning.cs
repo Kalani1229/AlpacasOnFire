@@ -200,6 +200,93 @@ namespace AlpacasOnFire.Core
         public const float NpcArriveThreshold    = 0.6f;   // 走到多近算抵達目標點
         public const float NpcGravity            = 20f;    // 給 NetworkCharacterController 用
 
+        // ---------- 惡搞系統 ----------
+        //
+        // 三個道具 = 對付「羊會跑」的三種解法：強攻（暈）／驅趕（推）／潛行（矇眼）。
+        // 數值的原則：**失控要短**。笑點在爬起來的過程，不在被按在地上的那段。
+        // 一秒上下就夠了 —— 再長就從惡搞變成霸凌，被害者會開始生氣而不是笑。
+
+        /// <summary>口水：視覺干擾持續多久。比失控長很多，因為它不剝奪控制權。</summary>
+        public const float SpitBlindSeconds     = 4f;
+
+        /// <summary>
+        /// 口水的冷卻。它是羊駝自帶的能力、不消耗任何東西，
+        /// 沒有冷卻就會變成按住不放的機槍，被害者永遠看不見畫面 ——
+        /// 那就不是惡搞而是單方面壓制了。
+        /// </summary>
+        public const float SpitCooldownSeconds  = 1.2f;
+
+        /// <summary>
+        /// 大蔥：擊退的初速與衰減時間。
+        /// 9 推起來太軟、看不出被打到，加倍成 18 —— 現在是真的會被撞飛一段。
+        /// 時間不動：要的是「一下子推很遠」而不是「被推著走很久」。
+        /// </summary>
+        public const float LeekKnockbackSpeed   = 18f;
+        public const float LeekKnockbackSeconds = 0.35f;
+
+        /// <summary>大蔥：被打到的人螢幕震一下的時間。</summary>
+        public const float LeekShakeSeconds     = 0.25f;
+
+        /// <summary>大蔥：揮一次的動作長度。要短，連打才順。</summary>
+        public const float LeekSwingSeconds     = 0.28f;
+
+        // ---- 口水（投射物）----
+        //
+        // 口水改成看得見的投射物之後，就變成一個**需要瞄準**的能力：
+        // 噴出去要時間、會掉、會落空。原本「按了就中」太無腦了。
+
+        /// <summary>
+        /// 口水的初速。原本 13 噴出去軟趴趴、還沒到人就掉了，直接加到五倍。
+        /// 65 比丟東西（16）快四倍，幾乎是直線 —— 現在它是「射」出去的。
+        ///
+        /// **這個數字快到會影響命中判定**：一個 tick 走 1.08 公尺，比命中半徑
+        /// （0.55）大，用單點檢查會直接跨過目標。所以 SpitProjectile 的人身判定
+        /// 是沿路徑掃過去的（SphereCast），不是在終點檢查一次。
+        /// </summary>
+        public const float SpitSpeed            = 65f;
+
+        /// <summary>口水的重力。比一般物品輕，飛得比較直。</summary>
+        public const float SpitGravity          = 7f;
+
+        /// <summary>口水的命中半徑。做得寬鬆一點，不然瞄準會太難。</summary>
+        public const float SpitHitRadius        = 0.55f;
+
+        /// <summary>口水最多飛多久。超時就自己消失，不會留在場上。</summary>
+        public const float SpitLifeSeconds      = 1.6f;
+
+        // ---- 卡車（投擲物）----
+
+        /// <summary>卡車：舉多久算蓄滿。看得見的蓄力＝被害者有機會跑。</summary>
+        public const float TruckChargeSeconds   = 2f;
+
+        /// <summary>卡車的初速範圍。**沒蓄力也丟得出去，只是飛得近。**</summary>
+        public const float TruckThrowSpeedMin   = 6f;
+        public const float TruckThrowSpeedMax   = 18f;
+
+        /// <summary>卡車落地爆炸的波及半徑。</summary>
+        public const float TruckBlastRadius     = 3.4f;
+
+        /// <summary>爆炸動畫演多久，演完卡車就消失。</summary>
+        public const float TruckBlastSeconds    = 0.45f;
+
+        /// <summary>卡車：砸中之後失控多久。**刻意很短**，見上面的註解。</summary>
+        public const float TruckStaggerSeconds  = 1.1f;
+
+        /// <summary>卡車：砸中時附帶的擊退（比大蔥弱，主要的效果是倒地）。</summary>
+        public const float TruckKnockbackSpeed  = 4f;
+
+        /// <summary>惡搞道具的作用距離。比一般互動（2.5）遠一點，追著打才追得到。</summary>
+        public const float PrankRange           = 3.2f;
+
+        /// <summary>被打倒時，毛散落的半徑。</summary>
+        public const float KnockdownWoolSpread  = 1.2f;
+
+        /// <summary>螢幕震動的位移幅度（公尺）。只動位置不動旋轉，準心不會飄。</summary>
+        public const float CameraShakeAmplitude = 0.09f;
+
+        /// <summary>視覺干擾最濃的時候，畫面被蓋掉多少（0~1）。刻意不到全黑。</summary>
+        public const float BlindMaxOpacity      = 0.82f;
+
         // ---------- 全隊共用背包 ----------
         // 每種顏色各自的上限（不是總量）。滿了就整筆拒收，毛留在動物身上。
         public const int   StashCapacityPerColor = 16;

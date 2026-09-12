@@ -77,13 +77,19 @@ namespace AlpacasOnFire.Player
                 bool throwCatch = kb != null && kb.qKey.isPressed;
                 bool useTool = mouse != null && mouse.rightButton.isPressed;
 
-                // E（隨身剃毛器）已經移除：剃毛改成對著羊或隊友按左鍵的一般互動。
-                // GameButton.DefaultTool 的列舉值與 latch 管線都留著（不重排列舉），
-                // 只是再也沒有按鍵會餵它。
+                // E：吐口水。羊駝自帶的能力，跟手上拿什麼無關。
+                // 沿用 GameButton.DefaultTool 這個列舉值 —— 它原本是「拿出隨身剃毛器」，
+                // 剃毛改成內建之後就空著了。NetInput 是連線架構的一部分，
+                // 不動它的列舉，只換這個鍵的意義。
+                bool spit = kb != null && kb.eKey.isPressed;
 
-                _latch.Hold(GameButton.Interact,   interact);
-                _latch.Hold(GameButton.ThrowCatch, throwCatch);
-                _latch.Hold(GameButton.UseTool,    useTool);
+                _latch.Hold(GameButton.Interact,    interact);
+                _latch.Hold(GameButton.ThrowCatch,  throwCatch);
+                _latch.Hold(GameButton.UseTool,     useTool);
+                _latch.Hold(GameButton.DefaultTool, spit);
+
+                if (kb != null && kb.eKey.wasPressedThisFrame)
+                    _latch.Latch(GameButton.DefaultTool);
 
                 if ((kb != null && kb.spaceKey.wasPressedThisFrame)
                  || (mouse != null && mouse.leftButton.wasPressedThisFrame))

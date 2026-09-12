@@ -174,6 +174,11 @@ namespace AlpacasOnFire.Player
             // 手上是持續使用型工具（噴槍、染劑刷）時，右鍵永遠屬於那個工具
             if (ctx.Held is Items.IHoldTool) return null;
 
+            // 惡搞道具同理：拿著大蔥按右鍵就是打人，不會變成打開手提箱面板。
+            // 這裡也擋一次是為了讓**提示字**一致 —— HUD 是靠 FindSecondaryTarget
+            // 決定要不要顯示次要互動提示的，不擋的話會顯示一個按下去不會發生的動作。
+            if (ctx.Held is Prank.PrankTool) return null;
+
             _candidates.Clear();
             CollectCandidates(in ctx);
 

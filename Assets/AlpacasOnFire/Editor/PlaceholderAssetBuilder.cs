@@ -5,6 +5,7 @@ using AlpacasOnFire.Machines;
 using AlpacasOnFire.Level;
 using AlpacasOnFire.Networking;
 using AlpacasOnFire.Player;
+using AlpacasOnFire.Prank;
 using AlpacasOnFire.Stall;
 using Fusion;
 using UnityEditor;
@@ -226,6 +227,8 @@ namespace AlpacasOnFire.EditorTools
             root.AddComponent<PlayerCarry>();
             // 擺攤系統：每個玩家自己的放置狀態。PlayerController 一行都沒動，只是多掛一個元件。
             root.AddComponent<Stall.PlayerStallAgent>();
+            // 惡搞系統：被口水／大蔥／卡車打到的狀態。跟 NPC 掛的是同一支元件。
+            root.AddComponent<Prank.StaggerStatus>();
 
             SetRef(pc, "_handAnchor", hand.transform);
             SetRef(pc, "_headAnchor", head.transform);
@@ -329,6 +332,105 @@ namespace AlpacasOnFire.EditorTools
                 return (typeof(ShearsTool), new Renderer[] { b.GetComponent<Renderer>() });
             }));
 
+            // ---- 惡搞道具 ----
+            //
+            // **只有兩個道具。** 口水是羊駝自帶的能力（E 鍵），沒有實體物件 ——
+            // 它不用撿、不佔手，跟另外兩個的定位完全不同。見 PlayerController.TrySpit()。
+            //
+            // 兩個都刻意做成完全不同的形狀與顏色。這些是會被丟來丟去、
+            // 掉在地上的東西，玩家要在一團混亂裡一眼認出「那是卡車」。
+
+            // 口水：飛出去的那一顆。**不是 CarriableItem** —— 撿得起來的口水很奇怪，
+            // 而且它只活一秒多。走 items 清單只是為了借用 GameCatalog 的查表，
+            // 生成端是 PlayerController.TrySpit() 直接 Runner.Spawn()。
+            AddItem(outItems, failures, "Item_Spit", () =>
+            {
+                var goo = Mat("M_SpitGoo", new Color(0.62f, 0.86f, 0.42f));
+
+                var root = new GameObject("Item_Spit");
+
+                // 整包視覺掛在 Visual 底下，SpitProjectile.Render() 會沿飛行方向
+                // 把它拉長成殘影 —— 初速 65 之下不拉長的話一格跳 1.08 公尺，看不見。
+                // 球做成直徑 0.3（= SpitProjectile.BaseLength），拉伸倍率才算得準。
+                var visual = Empty("Visual", root.transform, Vector3.zero);
+
+                Prim(PrimitiveType.Sphere, "Goo", visual.transform, Vector3.zero,
+                     Vector3.one * 0.3f, goo, keepCollider: false);
+
+                if (root.GetComponent<NetworkObject>() == null) root.AddComponent<NetworkObject>();
+                if (root.GetComponent<NetworkTransform>() == null) root.AddComponent<NetworkTransform>();
+
+                var spit = root.AddComponent<SpitProjectile>();
+                SetRef(spit, "_visual", visual.transform);
+
+                SetLayerRecursive(root, layer);
+                var prefab = SavePrefab(root, "Item_Spit");
+                return new GameCatalog.ItemEntry
+                {
+                    kind = ItemKind.Spit,
+                    prefab = prefab.GetComponent<NetworkObject>(),
+                };
+            });
+
+            // 大蔥：又長又綠，揮起來最有存在感。
+            // 整根掛在 SwingPivot 底下，揮打時繞著樞紐轉（LeekTool.Render()）。
+            AddItem(outItems, failures, "Item_Leek", () => Item(ItemKind.Leek, "Item_Leek", layer, root =>
+            {
+                var white = Mat("M_LeekStem", new Color(0.94f, 0.95f, 0.88f));
+                var green = Mat("M_LeekLeaf", new Color(0.36f, 0.66f, 0.28f));
+
+                var pivot = Empty("SwingPivot", root.transform, Vector3.zero);
+
+                var stem = Prim(PrimitiveType.Cylinder, "Stem", pivot.transform, new Vector3(0f, 0f, 0.3f),
+                                new Vector3(0.1f, 0.34f, 0.1f), white);
+                stem.transform.localRotation = Quaternion.Euler(90f, 0f, 0f);
+
+                var leaf = Prim(PrimitiveType.Cylinder, "Leaf", pivot.transform, new Vector3(0f, 0f, 0.92f),
+                                new Vector3(0.08f, 0.3f, 0.08f), green, keepCollider: false);
+                leaf.transform.localRotation = Quaternion.Euler(90f, 0f, 0f);
+
+                var leek = root.AddComponent<LeekTool>();
+                SetRef(leek, "_swingPivot", pivot.transform);
+
+                return (typeof(LeekTool), new Renderer[] { stem.GetComponent<Renderer>() });
+            }, componentAlreadyAdded: true));
+
+            // 卡車：最大、最重、最荒謬。舉起來的那一段掛在 Lift 子物件上，
+            // 蓄力時 TruckTool.Render() 會把它抬高，所有人都看得到有人要出手。
+            AddItem(outItems, failures, "Item_Truck", () => Item(ItemKind.Truck, "Item_Truck", layer, root =>
+            {
+                var paint = Mat("M_TruckBody", new Color(0.82f, 0.28f, 0.22f));
+                var glass = Mat("M_TruckGlass", new Color(0.55f, 0.72f, 0.85f));
+                var tyre = Mat("M_TruckTyre", new Color(0.14f, 0.14f, 0.16f));
+
+                var lift = Empty("Lift", root.transform, Vector3.zero);
+
+                var body = Prim(PrimitiveType.Cube, "Chassis", lift.transform, Vector3.zero,
+                                new Vector3(0.42f, 0.24f, 0.78f), paint);
+                Prim(PrimitiveType.Cube, "Cab", lift.transform, new Vector3(0f, 0.2f, 0.2f),
+                     new Vector3(0.36f, 0.22f, 0.3f), glass, keepCollider: false);
+
+                for (int i = 0; i < 4; i++)
+                {
+                    var wheel = Prim(PrimitiveType.Cylinder, $"Wheel{i}", lift.transform,
+                        new Vector3(i % 2 == 0 ? -0.22f : 0.22f, -0.14f, i < 2 ? 0.24f : -0.24f),
+                        new Vector3(0.14f, 0.05f, 0.14f), tyre, keepCollider: false);
+                    wheel.transform.localRotation = Quaternion.Euler(0f, 0f, 90f);
+                }
+
+                // 爆炸的火球。平常關著，炸的時候脹到波及半徑再淡掉。
+                // 沒有粒子系統就用一顆會脹大的球 —— 佔位美術的原則是「看得懂」不是「好看」。
+                var blastMat = TransparentMat("M_TruckBlast", new Color(1f, 0.62f, 0.18f), 0.55f);
+                var blast = Prim(PrimitiveType.Sphere, "Blast", root.transform, Vector3.zero,
+                                 Vector3.one, blastMat, keepCollider: false);
+                blast.SetActive(false);
+
+                var truck = root.AddComponent<TruckTool>();
+                SetRef(truck, "_liftVisual", lift.transform);
+                SetRef(truck, "_blastVisual", blast);
+
+                return (typeof(TruckTool), new Renderer[] { body.GetComponent<Renderer>() });
+            }, componentAlreadyAdded: true));
         }
 
         private static GameCatalog.ItemEntry Item(ItemKind kind, string prefabName, int layer,

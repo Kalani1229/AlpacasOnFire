@@ -193,5 +193,32 @@ namespace AlpacasOnFire.Player
             if (Held is IHoldTool tool)
                 tool.ToolTick(in ctx, held, deltaTime);
         }
+
+        /// <summary>
+        /// 按下右鍵：手上是惡搞道具就出手。
+        ///
+        /// 回傳 true 代表「這次右鍵被道具吃掉了」——**打不到人也算吃掉**。
+        /// 不然拿著大蔥對空氣按右鍵會掉回次要互動，把旁邊手提箱的選色面板打開。
+        ///
+        /// 只在 StateAuthority 呼叫。
+        /// </summary>
+        public bool TryPrank(in InteractionContext ctx)
+        {
+            if (!HasStateAuthority) return false;
+            return Held is Prank.PrankTool prank && prank.TryUse(in ctx);
+        }
+
+        /// <summary>
+        /// 惡搞道具的蓄力（卡車）。吃**右鍵按住**，跟出手同一個鍵。
+        ///
+        /// 另外開一條而不是塞進 IHoldTool，是為了不動噴槍那條已經在跑的路徑 ——
+        /// 那個介面的語意是「持續使用」，卡車是「蓄力後一次性爆發」，不一樣。
+        /// </summary>
+        public void TickPrank(in InteractionContext ctx, bool useToolHeld, float deltaTime)
+        {
+            if (!HasStateAuthority) return;
+            if (Held is Prank.PrankTool prank)
+                prank.PrankTick(in ctx, useToolHeld, deltaTime);
+        }
     }
 }

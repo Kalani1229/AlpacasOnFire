@@ -407,6 +407,7 @@ GameObject:
   - component: {fileID: 3941414542284195285}
   - component: {fileID: 3676632937734517554}
   - component: {fileID: 3675540222754563227}
+  - component: {fileID: 1635011383745026146}
   m_Layer: 8
   m_Name: Alpaca_Player
   m_TagString: Untagged
@@ -484,6 +485,7 @@ MonoBehaviour:
   - {fileID: 3941414542284195285}
   - {fileID: 3676632937734517554}
   - {fileID: 3675540222754563227}
+  - {fileID: 1635011383745026146}
   ForceRemoteRenderTimeframe: 0
 --- !u!114 &9079902039806942073
 MonoBehaviour:
@@ -580,6 +582,20 @@ MonoBehaviour:
   _OriginCellX: 0
   _OriginCellZ: 0
   _OriginFacing: 0
+--- !u!114 &1635011383745026146
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 7137730909891967934}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: ab8e767ab5a3540b68dd546a4a84a43f, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::AlpacasOnFire.Prank.StaggerStatus
+  _KnockbackDir: {x: 0, y: 0, z: 0}
+  _KnockbackSpeed: 0
 --- !u!1 &7738960977332561580
 GameObject:
   m_ObjectHideFlags: 0

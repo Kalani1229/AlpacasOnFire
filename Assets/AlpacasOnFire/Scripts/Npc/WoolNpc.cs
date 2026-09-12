@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using AlpacasOnFire.Core;
 using AlpacasOnFire.Interaction;
 using AlpacasOnFire.Items;
+using AlpacasOnFire.Prank;
 using AlpacasOnFire.Stall;
 using Fusion;
 using UnityEngine;
@@ -24,7 +25,7 @@ namespace AlpacasOnFire.Npc
     /// 剃毛不生成掉在地上的羊毛，直接進 TeamStash —— 這是 v6 跟舊版最大的差別。
     /// </summary>
     [RequireComponent(typeof(NetworkCharacterController))]
-    public class WoolNpc : NetworkBehaviour, IInteractable
+    public class WoolNpc : NetworkBehaviour, IInteractable, IStaggerable
     {
         /// <summary>場上所有的 NPC。批 B 的顧客系統要從這裡挑人，避免每次 FindObjectsOfType。</summary>
         public static readonly List<WoolNpc> All = new();
@@ -55,6 +56,7 @@ namespace AlpacasOnFire.Npc
         [Networked] public NetworkBool IsCustomer { get; set; }
 
         private NetworkCharacterController _ncc;
+        private StaggerStatus _stagger;
         private MaterialPropertyBlock _mpb;
 
         public DyeColorType WoolColor => (DyeColorType)ColorRaw;
@@ -68,6 +70,7 @@ namespace AlpacasOnFire.Npc
             if (!All.Contains(this)) All.Add(this);
 
             _ncc = GetComponent<NetworkCharacterController>();
+            _stagger = GetComponent<StaggerStatus>();   // 舊 prefab 上可能沒有，允許 null
             ConfigureController();
 
             if (HasStateAuthority)
@@ -122,12 +125,34 @@ namespace AlpacasOnFire.Npc
             // CharacterController 的話，後跑的會覆蓋先跑的，顧客就走不動了。
             if (IsCustomer) return;
 
+            // 被打倒：趴著不動，但還是要呼叫 Move() 讓重力與擊退繼續作用
+            if (_stagger != null && _stagger.Staggered)
+            {
+                _ncc.Move(ApplyKnock(Vector3.zero));
+                return;
+            }
+
             switch (State)
             {
                 case NpcState.Flee:  TickFlee();  break;
                 case NpcState.Pause: TickPause(); break;
                 default:             TickWander(); break;
             }
+        }
+
+        /// <summary>
+        /// 把擊退疊到移動方向上。被大蔥打到的羊會被推著走一小段，
+        /// 這就是「驅趕」這條解法 —— 不用抓牠，把牠推到你要的地方就好。
+        /// </summary>
+        private Vector3 ApplyKnock(Vector3 wish)
+        {
+            if (_stagger == null) return wish;
+
+            var knock = _stagger.CurrentKnockback;
+            if (knock.sqrMagnitude < 0.0001f) return wish;
+
+            _ncc.maxSpeed = Mathf.Max(_ncc.maxSpeed, knock.magnitude);
+            return (wish + knock.normalized * 1.2f).normalized;
         }
 
         private void TickRegen()
@@ -149,16 +174,16 @@ namespace AlpacasOnFire.Npc
             if (to.magnitude <= GameTuning.NpcArriveThreshold)
             {
                 EnterPause();
-                _ncc.Move(Vector3.zero);
+                _ncc.Move(ApplyKnock(Vector3.zero));
                 return;
             }
 
-            _ncc.Move(to.normalized);
+            _ncc.Move(ApplyKnock(to.normalized));
         }
 
         private void TickPause()
         {
-            _ncc.Move(Vector3.zero);
+            _ncc.Move(ApplyKnock(Vector3.zero));
             if (!PauseTimer.ExpiredOrNotRunning(Runner)) return;
             EnterWander();
         }
@@ -180,7 +205,7 @@ namespace AlpacasOnFire.Npc
             if (fromHome.magnitude > GameTuning.NpcWanderRadius)
                 dir = Vector3.Slerp(dir, -fromHome.normalized, 0.6f);
 
-            _ncc.Move(dir.normalized);
+            _ncc.Move(ApplyKnock(dir.normalized));
         }
 
         // ---------------- 狀態切換 ----------------
@@ -202,8 +227,15 @@ namespace AlpacasOnFire.Npc
                 Random.Range(GameTuning.NpcWanderPauseMin, GameTuning.NpcWanderPauseMax));
         }
 
+        /// <summary>
+        /// 逃跑。**被矇眼的羊不會逃** —— 這就是「潛行」那條解法：
+        /// 先噴一口口水，牠看不見你，接下來就可以站在旁邊慢慢剃。
+        /// 口水的價值全部在這一行。
+        /// </summary>
         private void EnterFlee(Vector3 awayFrom)
         {
+            if (_stagger != null && _stagger.Blinded) return;
+
             StateRaw = (int)NpcState.Flee;
 
             var dir = transform.position - awayFrom;
@@ -240,6 +272,65 @@ namespace AlpacasOnFire.Npc
             return true;
         }
 
+        // ---------------- IStaggerable（被惡搞） ----------------
+
+        public Transform StaggerAnchor => InteractionAnchor;
+
+        /// <summary>當顧客的時候不能被打 —— 排隊中的客人被砸倒只會變成 bug 展示。</summary>
+        public bool CanBeStaggered => Object != null && Object.IsValid && !IsCustomer;
+
+        public string StaggerDisplayName => $"{PlaceholderPalette.DyeName(WoolColor)}毛羊";
+
+        public void ApplyBlind(float seconds)
+        {
+            if (!HasStateAuthority || _stagger == null) return;
+            _stagger.Blind(seconds);
+
+            // 已經在逃的羊被矇到眼睛就會停下來 —— 不然「噴了還在跑」很難懂
+            if (State == NpcState.Flee) EnterPause();
+        }
+
+        public void ApplyKnockback(Vector3 direction, float speed, float seconds)
+        {
+            if (!HasStateAuthority || _stagger == null) return;
+            _stagger.Knockback(direction, speed, seconds);
+        }
+
+        /// <summary>
+        /// 被打倒。**身上的毛一次全部掉下來，掉在地上要撿。**
+        ///
+        /// 注意這條路徑**不經過 TeamStash** —— 一般剃毛是直接進共同背包的，
+        /// 打倒掉出來的是地上的實體羊毛。差別是刻意的：
+        /// 強攻一次拿三份，但你得蹲下去一顆一顆撿，而且撿的時候別人也撿得走。
+        /// 背包滿了也照樣掉得出來，因為它根本沒進背包。
+        /// </summary>
+        public void ApplyStagger(float seconds, bool dropWool)
+        {
+            if (!HasStateAuthority || _stagger == null) return;
+
+            _stagger.Stagger(seconds);
+            if (dropWool) ScatterFleece();
+
+            GameAudio.PlayAt(SfxId.Shear, transform.position);
+        }
+
+        private void ScatterFleece()
+        {
+            int count = Fleece;
+            if (count <= 0) return;
+
+            Fleece = 0;
+            RegenTimer = TickTimer.CreateFromSeconds(Runner, GameTuning.NpcFleeceRegenSeconds);
+
+            var spec = GarmentSpec.Create(PatternType.None, WoolColor);
+            for (int i = 0; i < count; i++)
+            {
+                var offset = Random.insideUnitCircle * GameTuning.KnockdownWoolSpread;
+                var pos = transform.position + Vector3.up * 0.6f + new Vector3(offset.x, 0f, offset.y);
+                ItemFactory.Spawn(Runner, ItemKind.Wool, spec, pos);
+            }
+        }
+
         // ---------------- IInteractable ----------------
 
         public Transform InteractionAnchor =>
@@ -260,6 +351,10 @@ namespace AlpacasOnFire.Npc
             if (IsCustomer) return false;
             if (ctx.Player == null) return false;
 
+            // 倒在地上的羊不能剃 —— 要先讓牠爬起來。
+            // 這是卡車的取捨：一次把三份毛打散在地上，但那一秒內你剃不到牠。
+            if (_stagger != null && _stagger.Staggered) return false;
+
             // 毛剃光了也要能互動 —— GetPrompt 要說「剃光了」而不是靜默無反應
             return true;
         }
@@ -271,12 +366,14 @@ namespace AlpacasOnFire.Npc
             if (Fleece <= 0) return "牠身上的毛剃光了";
 
             string colour = PlaceholderPalette.DyeName(WoolColor);
-            return $"[左鍵] 剃{colour}毛（{Fleece}/{GameTuning.NpcFleeceMax}）";
+            string blind = _stagger != null && _stagger.Blinded ? "（看不見你）" : "";
+            return $"[左鍵] 剃{colour}毛（{Fleece}/{GameTuning.NpcFleeceMax}）{blind}";
         }
 
         public void Interact(in InteractionContext ctx)
         {
             if (!HasStateAuthority) return;
+            if (_stagger != null && _stagger.Staggered) return;
             if (Fleece <= 0) return;
 
             // 先伸出剃毛器再結算 —— 剃不成功（背包滿了）也該看到動作，
@@ -290,7 +387,38 @@ namespace AlpacasOnFire.Npc
         public override void Render()
         {
             ApplyColour(false);
+            RenderStagger();
         }
+
+        /// <summary>倒地：整隻翻倒。跟玩家用同一套表現，被打的感覺才一致。</summary>
+        private void RenderStagger()
+        {
+            if (_bodyRenderer == null) return;
+
+            var body = _bodyRenderer.transform;
+            bool down = _stagger != null && _stagger.Staggered;
+
+            float target = down ? 82f : 0f;
+            float speed = down ? 900f : 260f;
+            _bodyTilt = Mathf.MoveTowards(_bodyTilt, target, speed * Time.deltaTime);
+
+            if (Mathf.Abs(_bodyTilt) < 0.01f && !down)
+            {
+                if (_tiltApplied) { body.localRotation = _bodyBaseRotation; _tiltApplied = false; }
+                return;
+            }
+
+            if (!_tiltApplied)
+            {
+                _bodyBaseRotation = body.localRotation;
+                _tiltApplied = true;
+            }
+            body.localRotation = _bodyBaseRotation * Quaternion.Euler(_bodyTilt, 0f, 0f);
+        }
+
+        private float _bodyTilt;
+        private Quaternion _bodyBaseRotation = Quaternion.identity;
+        private bool _tiltApplied;
 
         private int _renderedFleece = -1;
         private int _renderedColour = -1;

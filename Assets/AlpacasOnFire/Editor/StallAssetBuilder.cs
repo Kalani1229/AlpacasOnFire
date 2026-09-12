@@ -542,6 +542,8 @@ namespace AlpacasOnFire.EditorTools
             ncc.rotationSpeed = 8f;
 
             var npc = root.AddComponent<WoolNpc>();
+            // 惡搞系統：跟玩家掛的是同一支元件，所以「打誰都一樣」
+            root.AddComponent<Prank.StaggerStatus>();
             SetRef(npc, "_interactionAnchor", interact.transform);
             SetRef(npc, "_bodyRenderer", body.GetComponent<Renderer>());
             SetRefArray(npc, "_fleeceTufts", tufts);

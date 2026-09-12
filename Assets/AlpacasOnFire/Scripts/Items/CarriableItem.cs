@@ -119,6 +119,13 @@ namespace AlpacasOnFire.Items
         }
 
         public void LaunchFrom(PlayerController player, Vector3 direction)
+            => LaunchFrom(player, direction, GameTuning.ThrowSpeed);
+
+        /// <summary>
+        /// 指定初速的丟出。卡車用它做「蓄力越久飛越遠」——
+        /// 同樣的拋物線，只有初速不同，所以射程自然跟著變。
+        /// </summary>
+        public void LaunchFrom(PlayerController player, Vector3 direction, float speed)
         {
             if (!HasStateAuthority) return;
             HolderId = default;
@@ -126,9 +133,18 @@ namespace AlpacasOnFire.Items
             FlightElapsed = 0f;
             ThrowerId = player.Object.Id;
             var dir = (direction.normalized + Vector3.up * GameTuning.ThrowUpwardRatio).normalized;
-            FlightVelocity = dir * GameTuning.ThrowSpeed;
+            FlightVelocity = dir * speed;
             transform.position = player.HandAnchor.position;
         }
+
+        /// <summary>
+        /// 飛行結束（撞到東西或落地）。預設什麼都不做 —— 東西就停在那裡等人撿。
+        /// 卡車覆寫它來引爆。
+        ///
+        /// 注意這支**在物件還活著的時候**呼叫，可以安全地讀寫欄位；
+        /// 要 Despawn 的話請自己負責。
+        /// </summary>
+        protected virtual void OnFlightEnded(bool hitSomething, Vector3 point) { }
 
         private void TickFlight(float dt)
         {
@@ -152,6 +168,7 @@ namespace AlpacasOnFire.Items
                 InFlight = false;
                 FlightVelocity = Vector3.zero;
                 transform.position = hit.point + Vector3.up * _groundOffset;
+                OnFlightEnded(true, hit.point);
                 return;
             }
 
@@ -160,6 +177,7 @@ namespace AlpacasOnFire.Items
                 InFlight = false;
                 FlightVelocity = Vector3.zero;
                 transform.position = SnapToGround(transform.position);
+                OnFlightEnded(false, transform.position);
                 return;
             }
 
@@ -224,7 +242,12 @@ namespace AlpacasOnFire.Items
                 ItemKind.Box           => PlaceholderPalette.Box,
                 _                      => Color.white,
             };
-            if (_kind == ItemKind.Shears) return; // 工具維持 prefab 配色
+            // 工具與惡搞道具維持 prefab 配色 —— 它們的顏色是辨識用的，
+            // 被 Spec.Color（預設白）蓋掉就全部變成白色方塊，分不出誰是誰
+            if (_kind == ItemKind.Shears
+                || _kind == ItemKind.Spit
+                || _kind == ItemKind.Leek
+                || _kind == ItemKind.Truck) return;
 
             _mpb ??= new MaterialPropertyBlock();
             foreach (var r in _tintTargets)
@@ -300,6 +323,9 @@ namespace AlpacasOnFire.Items
             ItemKind.Garment     => Spec.Describe(),
             ItemKind.Box         => "箱子",
             ItemKind.Shears      => "剃毛器",
+            ItemKind.Spit        => "口水",
+            ItemKind.Leek        => "大蔥",
+            ItemKind.Truck       => "卡車",
             _                    => "物品",
         };
     }

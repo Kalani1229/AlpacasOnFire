@@ -13,6 +13,15 @@ namespace AlpacasOnFire.Core
         Box = 7,           // 箱子
         Shears = 8,        // 剃毛器（工具）
         Suitcase = 10,     // 手提箱（擺攤系統；拿著時佔用雙手）
+
+        // ---- 惡搞道具（一律往後加，不重排）----
+        // 三種解法：潛行（口水）／驅趕（大蔥）／強攻（卡車）。
+        //
+        // 11 已作廢但**保留編號不重用**：口水改成羊駝自帶的能力（E 鍵），
+        // 不是撿得到的道具，所以沒有對應的 prefab。
+        Spit = 11,         // 已作廢 —— 見 PlayerController.TrySpit()
+        Leek = 12,         // 大蔥：擊退 + 螢幕震一下，用來驅趕
+        Truck = 13,        // 卡車：蓄力砸下去，暈眩倒地、身上的毛全部掉出來（單次）
     }
 
     public enum PatternType : byte

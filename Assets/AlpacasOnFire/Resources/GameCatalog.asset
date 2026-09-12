@@ -30,6 +30,12 @@ MonoBehaviour:
     prefab: {fileID: 1127661999103029993, guid: 42fc36ea7ea464e5799577ab78d10136, type: 3}
   - kind: 8
     prefab: {fileID: 1337547820958141853, guid: 0b920c3f94ea84297941f04f7ac20e13, type: 3}
+  - kind: 11
+    prefab: {fileID: 3688676009990923433, guid: a60322c2ee13649e687c1c734db3f940, type: 3}
+  - kind: 12
+    prefab: {fileID: 1844750727981483778, guid: a8f5d3d5c338546168c0a8d00e7b3eb0, type: 3}
+  - kind: 13
+    prefab: {fileID: 181461677570395217, guid: 8ab0620f80d3f49e5926fae937130ee8, type: 3}
   - kind: 10
     prefab: {fileID: 7877982287268338264, guid: 2ea00b7f6dee348b6b12993eec877fbd, type: 3}
   elements:

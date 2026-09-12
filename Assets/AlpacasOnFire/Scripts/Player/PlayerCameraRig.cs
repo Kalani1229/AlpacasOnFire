@@ -91,10 +91,35 @@ namespace AlpacasOnFire.Player
             float speed = desired < _currentDistance ? GameTuning.CameraZoomInSpeed : GameTuning.CameraZoomOutSpeed;
             _currentDistance = Mathf.MoveTowards(_currentDistance, desired, speed * Time.deltaTime);
 
-            transform.position = origin + back * _currentDistance;
+            transform.position = origin + back * _currentDistance + ShakeOffset();
             transform.rotation = rot;
 
             UpdateBodyFade();
+        }
+
+        /// <summary>
+        /// 被打到時螢幕震一下。
+        ///
+        /// 只加在**位置**上、不動旋轉 —— 轉鏡頭會讓準心跟著飄，被害者接下來
+        /// 那幾秒會瞄不準東西，那是懲罰不是笑點。位移則純粹是「哇」一下。
+        ///
+        /// 用 PerlinNoise 而不是 Random：每一幀的值是連續的，看起來像震動，
+        /// 用 Random 會變成高頻閃爍，很難看也容易讓人不舒服。
+        /// </summary>
+        private Vector3 ShakeOffset()
+        {
+            var player = PlayerController.Local;
+            if (player == null || player.Object == null || !player.Object.IsValid) return Vector3.zero;
+
+            var status = player.GetComponent<Prank.StaggerStatus>();
+            if (status == null || !status.Shaking) return Vector3.zero;
+
+            float t = Time.time * 38f;
+            float amp = GameTuning.CameraShakeAmplitude;
+
+            return new Vector3((Mathf.PerlinNoise(t, 0f) - 0.5f) * 2f * amp,
+                               (Mathf.PerlinNoise(0f, t) - 0.5f) * 2f * amp,
+                               0f);
         }
 
         /// <summary>互動／塗抹射線用的方向（＝畫面中心）。</summary>

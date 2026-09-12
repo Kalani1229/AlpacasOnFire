@@ -104,6 +104,12 @@ namespace AlpacasOnFire.UI
                 new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(0.5f, 0f),
                 new Vector2(0f, 120f), new Vector2(900f, 40f));
 
+            // 下方中央、主提示的下面一行：惡搞提示
+            _prankLabel = UIFactory.Label("Prank", root, "", 22, TextAnchor.LowerCenter,
+                new Color(1f, 0.86f, 0.5f),
+                new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(0.5f, 0f),
+                new Vector2(0f, 88f), new Vector2(900f, 32f));
+
             // 左下：目前攜帶物
             _carryLabel = UIFactory.Label("Carry", root, "", 24, TextAnchor.LowerLeft,
                 new Color(0.9f, 0.95f, 1f),
@@ -126,6 +132,43 @@ namespace AlpacasOnFire.UI
             _toastLabel = UIFactory.Label("Toast", root, "", 30, TextAnchor.MiddleCenter, Color.white,
                 new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f),
                 new Vector2(0f, -160f), new Vector2(1000f, 40f));
+
+            // 全螢幕：被口水噴到的視覺干擾。最後才建，蓋在所有東西上面。
+            _blindOverlay = UIFactory.Panel("Blind", root, new Color(0.86f, 0.88f, 0.72f, 0f),
+                Vector2.zero, Vector2.one, new Vector2(0.5f, 0.5f), Vector2.zero, Vector2.zero);
+            _blindOverlay.raycastTarget = false;
+
+            _blindLabel = UIFactory.Label("BlindLabel", root, "", 34, TextAnchor.MiddleCenter,
+                new Color(0.2f, 0.2f, 0.18f, 0f),
+                new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f),
+                new Vector2(0f, 90f), new Vector2(900f, 44f));
+        }
+
+        private Image _blindOverlay;
+        private Text _blindLabel;
+
+        /// <summary>
+        /// 被口水噴到：畫面蒙上一層。
+        ///
+        /// **刻意不是全黑。** 保留視覺、只干擾 —— 看不到東西的人連自己被整了
+        /// 都不知道，那就沒有笑點只剩煩躁。留 18% 透出來，還看得到輪廓，
+        /// 知道發生什麼事、也還走得動，只是瞄不準。
+        /// </summary>
+        private void UpdateBlind(PlayerController p)
+        {
+            if (_blindOverlay == null) return;
+
+            var status = p != null ? p.GetComponent<Prank.StaggerStatus>() : null;
+            float t = status != null ? Mathf.Clamp01(status.Blind01) : 0f;
+
+            var c = _blindOverlay.color;
+            c.a = t * GameTuning.BlindMaxOpacity;
+            _blindOverlay.color = c;
+
+            var lc = _blindLabel.color;
+            lc.a = t;
+            _blindLabel.color = lc;
+            _blindLabel.text = t > 0.01f ? "視線被擋住了！" : "";
         }
 
         /// <summary>畫面正中央的十字準星。塗抹就是對著這個點刷，所以要一眼看得到。</summary>
@@ -332,10 +375,24 @@ namespace AlpacasOnFire.UI
         private void UpdatePlayerInfo()
         {
             var p = PlayerController.Local;
+            UpdateBlind(p);
+
             if (p == null || p.Object == null)
             {
                 _promptLabel.text = "";
                 _carryLabel.text = "";
+                _prankLabel.text = "";
+                _sprayBarBg.gameObject.SetActive(false);
+                _sprayLabel.text = "";
+                return;
+            }
+
+            // 失控中不給任何互動提示 —— 按了也沒用，顯示出來只會讓人一直按
+            if (p.IsStaggered)
+            {
+                _promptLabel.text = "站不起來…";
+                _carryLabel.text = "";
+                _prankLabel.text = "";
                 _sprayBarBg.gameObject.SetActive(false);
                 _sprayLabel.text = "";
                 return;
@@ -365,6 +422,8 @@ namespace AlpacasOnFire.UI
             }
             _promptLabel.text = prompt ?? "";
 
+            UpdatePrankHint(p, held);
+
             if (held is DyeCanisterTool canister)
             {
                 _sprayBarBg.gameObject.SetActive(true);
@@ -381,6 +440,41 @@ namespace AlpacasOnFire.UI
                 _sprayLabel.text = "";
             }
         }
+
+        /// <summary>
+        /// 惡搞的提示，獨立一行在主提示下面。
+        ///
+        /// 兩件事分開講，因為它們的條件不一樣：
+        ///   口水（E）永遠可以用，跟手上拿什麼無關 —— 所以永遠顯示
+        ///   大蔥／卡車（右鍵）只有拿在手上才有 —— 所以拿著才顯示
+        /// </summary>
+        private void UpdatePrankHint(PlayerController p, Items.CarriableItem held)
+        {
+            if (_prankLabel == null) return;
+
+            if (held is Prank.PrankTool prank)
+            {
+                var ctx = p.Interactor.BuildContext();
+                _prankLabel.text = prank.BuildPrompt(in ctx) ?? "";
+                _prankLabel.color = new Color(1f, 0.86f, 0.5f);
+                return;
+            }
+
+            // 冷卻中就把字轉灰並顯示秒數，不然玩家會一直按、以為鍵壞了
+            if (p.SpitReady)
+            {
+                _prankLabel.text = "[E] 吐口水";
+                _prankLabel.color = new Color(0.72f, 0.9f, 0.72f);
+            }
+            else
+            {
+                float left = p.SpitCooldown01 * GameTuning.SpitCooldownSeconds;
+                _prankLabel.text = $"[E] 吐口水（{left:F1}s）";
+                _prankLabel.color = new Color(0.5f, 0.55f, 0.5f);
+            }
+        }
+
+        private Text _prankLabel;
 
         private void UpdateFlashAndToast()
         {

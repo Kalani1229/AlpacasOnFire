@@ -70,6 +70,12 @@ namespace AlpacasOnFire.DebugTools
             Binding.MakeItem(Key.Digit4, "4", ItemKind.Wool, "藍毛", DyeColorType.Blue),
             Binding.MakeItem(Key.Digit5, "5", ItemKind.Wool, "黃毛", DyeColorType.Yellow),
             Binding.MakeDevice(Key.Digit6, "6", LevelElementType.WeavingMachineShirt, "襯衫織布機"),
+
+            // 惡搞道具。生到腳邊，撿起來對隊友或羊按**右鍵**出手。
+            // 卡車要按住右鍵蓄力兩秒才砸得下去。
+            // 口水不在這裡 —— 它是自帶能力，直接按 E。
+            Binding.MakeItem(Key.Digit7, "7", ItemKind.Leek, "大蔥"),
+            Binding.MakeItem(Key.Digit8, "8", ItemKind.Truck, "卡車"),
         };
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]

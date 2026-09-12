@@ -548,6 +548,7 @@ GameObject:
   - component: {fileID: 6372315843315767013}
   - component: {fileID: 1334556502965800013}
   - component: {fileID: 3684597292080738312}
+  - component: {fileID: 4986196775001172941}
   - component: {fileID: 2950328516177377888}
   m_Layer: 0
   m_Name: Npc_WoolNpc
@@ -621,6 +622,7 @@ MonoBehaviour:
   NetworkedBehaviours:
   - {fileID: 1334556502965800013}
   - {fileID: 3684597292080738312}
+  - {fileID: 4986196775001172941}
   - {fileID: 2950328516177377888}
   ForceRemoteRenderTimeframe: 0
 --- !u!114 &1334556502965800013
@@ -669,6 +671,20 @@ MonoBehaviour:
   _FleeDirection: {x: 0, y: 0, z: 0}
   _IsCustomer:
     _value: 0
+--- !u!114 &4986196775001172941
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 3305935869191939010}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: ab8e767ab5a3540b68dd546a4a84a43f, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::AlpacasOnFire.Prank.StaggerStatus
+  _KnockbackDir: {x: 0, y: 0, z: 0}
+  _KnockbackSpeed: 0
 --- !u!114 &2950328516177377888
 MonoBehaviour:
   m_ObjectHideFlags: 0
