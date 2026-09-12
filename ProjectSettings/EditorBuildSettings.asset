@@ -8,21 +8,21 @@ EditorBuildSettings:
   - enabled: 1
     path: Assets/AlpacasOnFire/Scenes/Title.unity
     guid: 2b2019267dc0d436f9b394cbf7fe04fc
-  - enabled: 1
+  - enabled: 0
     path: Assets/AlpacasOnFire/Scenes/Level01_Workshop.unity
     guid: c9540564496554ac4b6b2365c117e99d
-  - enabled: 1
+  - enabled: 0
     path: Assets/AlpacasOnFire/Scenes/Level_Test.unity
     guid: 6bcf21a4e83e340b6abdfc5df8ea356d
-  - enabled: 1
+  - enabled: 0
     path: Assets/Scenes/SampleScene.unity
     guid: 99c9720ab356a0642a771bea13969a05
-  - enabled: 1
+  - enabled: 0
     path: Assets/AlpacasOnFire/Scenes/Stall_Test.unity
     guid: 447e7d666a6024c1f89b5cab360115e0
   - enabled: 1
     path: Assets/AlpacasOnFire/Scenes/Village_Test.unity
-    guid: 5d092c4395d7b4031adfafdd1395f86e
+    guid: 9f099786bab154e60a2c0d398c918664
   m_configObjects:
     com.unity.input.settings.actions: {fileID: -944628639613478452, guid: 052faaac586de48259a63d0c4782560b, type: 3}
   m_UseUCBPForAssetBundles: 0
