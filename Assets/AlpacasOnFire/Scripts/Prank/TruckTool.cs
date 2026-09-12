@@ -85,6 +85,14 @@ namespace AlpacasOnFire.Prank
             GameAudio.PlayAt(SfxId.ShipFail, center);
 
             // 範圍傷害：半徑內每一個 IStaggerable 都倒，而且毛全部掉出來。
+            //
+            // **丟的人自己也算。這是刻意不排除的。**
+            // 卡車是唯一有自傷風險的道具，那就是它的代價 —— 沒蓄滿力就丟出去的話：
+            //   初速  5（沒蓄力）-> 落點 1.8 公尺 -> 在 3.4 的爆炸半徑內 -> 炸到自己
+            //   初速 18（蓄滿）  -> 落點 9.2 公尺 -> 安全
+            // 所以「站著舉滿兩秒」不只是為了丟得遠，也是為了不要炸到自己。
+            // 慌張亂丟＝自己倒地、自己的毛掉一地，那正是它好笑的地方。
+            //
             // 用 HashSet 語意去重 —— 一個目標身上可能有好幾顆碰撞體
             // （身體 + DeployHandle + 各種 trigger），不濾的話會被打好幾次。
             int count = Physics.OverlapSphereNonAlloc(center, GameTuning.TruckBlastRadius, Buffer,

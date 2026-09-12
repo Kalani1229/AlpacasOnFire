@@ -27,8 +27,8 @@ namespace AlpacasOnFire.DebugTools
         /// <summary>畫面左下角要不要顯示按鍵提示。</summary>
         public static bool ShowHint = true;
 
-        /// <summary>生什麼：可攜帶物品，還是場上的裝備。</summary>
-        private enum SpawnKind : byte { Item, Device }
+        /// <summary>生什麼：可攜帶物品、場上的裝備，還是對自己施加一個惡搞效果。</summary>
+        private enum SpawnKind : byte { Item, Device, SelfPrank }
 
         private readonly struct Binding
         {
@@ -58,6 +58,9 @@ namespace AlpacasOnFire.DebugTools
 
             public static Binding MakeDevice(Key key, string keyLabel, LevelElementType device, string label)
                 => new(key, keyLabel, label, SpawnKind.Device, ItemKind.None, device, DyeColorType.White);
+
+            public static Binding MakeSelfPrank(Key key, string keyLabel, string label)
+                => new(key, keyLabel, label, SpawnKind.SelfPrank, ItemKind.None, default, DyeColorType.White);
         }
 
         // 要加新的除錯物件，在這裡加一行即可。
@@ -71,12 +74,22 @@ namespace AlpacasOnFire.DebugTools
             Binding.MakeItem(Key.Digit5, "5", ItemKind.Wool, "黃毛", DyeColorType.Yellow),
             Binding.MakeDevice(Key.Digit6, "6", LevelElementType.WeavingMachineShirt, "襯衫織布機"),
 
-            // 惡搞道具。生到腳邊，撿起來對隊友或羊按**右鍵**出手。
-            // 卡車要按住右鍵蓄力兩秒才砸得下去。
+            // 惡搞道具。生到腳邊，撿起來對隊友或羊按**左鍵**出手。
+            // 卡車不是武器：按住左鍵或 Q 蓄力，放開丟出去，落地爆炸。
             // 口水不在這裡 —— 它是自帶能力，直接按 E。
             Binding.MakeItem(Key.Digit7, "7", ItemKind.Leek, "大蔥"),
             Binding.MakeItem(Key.Digit8, "8", ItemKind.Truck, "卡車"),
+
+            // 對自己施加惡搞效果，用來單人測試「被打到是什麼感覺」。
+            // **一個鍵輪流三種**：致盲 -> 擊退 -> 暈倒 -> 再回到致盲。
+            // 三個一起上的話畫面會糊成一團，分不出哪個效果長什麼樣。
+            Binding.MakeSelfPrank(Key.Digit0, "0", "對自己惡搞"),
         };
+
+        /// <summary>0 鍵輪到第幾個效果。</summary>
+        private static int _selfPrankIndex;
+
+        private static readonly string[] SelfPrankNames = { "致盲", "擊退", "暈倒" };
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
         private static void Bootstrap()
@@ -117,10 +130,58 @@ namespace AlpacasOnFire.DebugTools
                 return;
             }
 
+            if (binding.Kind == SpawnKind.SelfPrank) { SelfPrank(player); return; }
+
             var point = GroundPointInFrontOf(player);
 
             if (binding.Kind == SpawnKind.Item) SpawnItem(binding, player, point);
             else SpawnDevice(binding, player, point);
+        }
+
+        /// <summary>
+        /// 對自己施加一個惡搞效果，一次一種，按一次換下一種。
+        ///
+        /// 為什麼要有這個：三種效果平常都要別人打你才看得到，單人根本測不了。
+        /// 而「被打到是什麼感覺」正是這套系統最需要反覆調的部分 ——
+        /// 致盲濃不濃、擊退推多遠、倒地爬多久，都得自己親身體驗才調得準。
+        ///
+        /// 暈倒刻意帶 dropWool: true，連「身上的毛散一地」一起測到。
+        /// </summary>
+        private static void SelfPrank(PlayerController player)
+        {
+            var status = player.GetComponent<Prank.StaggerStatus>();
+            if (status == null)
+            {
+                Debug.LogError("[Debug] 玩家 prefab 上沒有 StaggerStatus。" +
+                               "請跑「羊駝很忙 / 1. 建置佔位資產」。");
+                return;
+            }
+
+            string name = SelfPrankNames[_selfPrankIndex];
+
+            switch (_selfPrankIndex)
+            {
+                case 0:
+                    status.Blind(GameTuning.SpitBlindSeconds);
+                    break;
+
+                case 1:
+                    // 往自己背後推 —— 面向哪裡就被推向哪裡的反方向，
+                    // 跟真的被正面打到一樣
+                    status.Knockback(-player.transform.forward,
+                                     GameTuning.LeekKnockbackSpeed,
+                                     GameTuning.LeekKnockbackSeconds);
+                    break;
+
+                default:
+                    // 走 PlayerController 的 ApplyStagger 而不是 status.Stagger()，
+                    // 因為前者還會脫手、掉毛 —— 那才是完整的「被卡車砸到」
+                    player.ApplyStagger(GameTuning.TruckStaggerSeconds, dropWool: true);
+                    break;
+            }
+
+            _selfPrankIndex = (_selfPrankIndex + 1) % SelfPrankNames.Length;
+            Debug.Log($"[Debug] 對自己施加：{name}。再按一次是「{SelfPrankNames[_selfPrankIndex]}」。");
         }
 
         private static void SpawnItem(Binding binding, PlayerController player, Vector3 point)
@@ -200,7 +261,16 @@ namespace AlpacasOnFire.DebugTools
             };
 
             var text = "除錯：";
-            foreach (var binding in Keys) text += $"[{binding.KeyLabel}] {binding.Label}　";
+            foreach (var binding in Keys)
+            {
+                // 對自己惡搞是輪流的，要把「下一個是什麼」寫出來，
+                // 不然按下去才知道這次是哪一種
+                string label = binding.Kind == SpawnKind.SelfPrank
+                    ? $"{binding.Label}（下一個：{SelfPrankNames[_selfPrankIndex]}）"
+                    : binding.Label;
+
+                text += $"[{binding.KeyLabel}] {label}　";
+            }
 
             GUI.Label(new Rect(12f, Screen.height - 26f, 700f, 20f), text, style);
         }
