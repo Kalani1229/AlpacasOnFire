@@ -105,6 +105,8 @@ namespace AlpacasOnFire.Player
             if (localPlayer != null && localPlayer.Object != null && localPlayer.Object.IsValid)
                 localPlayer.SetBodyHidden(FirstPerson);
 
+            var tilt = UpdateStaggerTilt(localPlayer);
+
             if (FirstPerson)
             {
                 // 沒有平滑、沒有碰撞、沒有側位移 —— 鏡頭就是眼睛。
@@ -114,9 +116,10 @@ namespace AlpacasOnFire.Player
                     ? head.position
                     : _target.position + Vector3.up * GameTuning.EyeHeight;
 
+                // 位置用**沒有傾斜**的 rotNow 算，傾斜只加在旋轉上
                 transform.position = eye + rotNow * Vector3.forward * GameTuning.FirstPersonForward
                                          + ShakeOffset();
-                transform.rotation = rotNow;
+                transform.rotation = rotNow * tilt;
 
                 _initialised = false;   // 切回第三人稱時重抓 pivot，不要從舊位置滑過去
                 return;
@@ -151,10 +154,42 @@ namespace AlpacasOnFire.Player
             _currentDistance = Mathf.MoveTowards(_currentDistance, desired, speed * Time.deltaTime);
 
             transform.position = origin + back * _currentDistance + ShakeOffset();
-            transform.rotation = rot;
+            transform.rotation = rot * tilt;
 
             UpdateBodyFade();
         }
+
+        /// <summary>
+        /// 倒地時鏡頭跟著側翻。
+        ///
+        /// **只轉旋轉、不動位置。** 位置是用沒有傾斜的 rot 算出來的，
+        /// 連位置一起繞的話第三人稱會把鏡頭整個甩到側邊 ——
+        /// 那不是「我倒了」，是「有人把攝影機扔出去了」。
+        ///
+        /// 倒下快（5.5）、爬起來慢（1.6），跟身體的翻倒同一個節奏。
+        /// 爬起來的那一秒鏡頭慢慢轉正，是這個效果最好笑的部分。
+        ///
+        /// 側翻方向固定往右。要跟著被推的方向倒的話，得在倒下的瞬間把
+        /// 擊退方向鎖起來（KnockbackTimer 0.35 秒就到期，但倒地有 1.1 秒），
+        /// 多一個狀態換一點變化，目前不值得。
+        /// </summary>
+        private Quaternion UpdateStaggerTilt(PlayerController player)
+        {
+            bool down = player != null && player.Object != null && player.Object.IsValid
+                        && player.IsStaggered;
+
+            float target = down ? 1f : 0f;
+            float speed = down ? GameTuning.StaggerCameraFallSpeed : GameTuning.StaggerCameraRiseSpeed;
+            _staggerTilt = Mathf.MoveTowards(_staggerTilt, target, speed * Time.deltaTime);
+
+            if (_staggerTilt <= 0.0001f) return Quaternion.identity;
+
+            return Quaternion.Euler(GameTuning.StaggerCameraPitch * _staggerTilt,
+                                    0f,
+                                    GameTuning.StaggerCameraRoll * _staggerTilt);
+        }
+
+        private float _staggerTilt;
 
         /// <summary>
         /// 被打到時螢幕震一下。

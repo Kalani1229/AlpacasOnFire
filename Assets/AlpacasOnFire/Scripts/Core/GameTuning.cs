@@ -313,6 +313,18 @@ namespace AlpacasOnFire.Core
         /// <summary>螢幕震動的位移幅度（公尺）。只動位置不動旋轉，準心不會飄。</summary>
         public const float CameraShakeAmplitude = 0.09f;
 
+        // ---- 倒地時鏡頭跟著倒 ----
+        //
+        // 只轉**鏡頭的旋轉**，不動鏡頭的位置 —— 位置照常跟著角色。
+        // 連位置一起繞的話，第三人稱下鏡頭會整個甩到側邊，那就不是「我倒了」
+        // 而是「有人把攝影機扔出去了」。
+        //
+        // 倒下快、爬起來慢，跟身體的翻倒同一個節奏：笑點在爬起來的過程。
+        public const float StaggerCameraRoll      = 68f;   // 側翻角度
+        public const float StaggerCameraPitch     = 22f;   // 順便往下看一點，像臉貼著地
+        public const float StaggerCameraFallSpeed = 5.5f;  // 每秒的比例變化（倒下）
+        public const float StaggerCameraRiseSpeed = 1.6f;  // 每秒的比例變化（爬起來）
+
         /// <summary>視覺干擾最濃的時候，畫面被蓋掉多少（0~1）。刻意不到全黑。</summary>
         public const float BlindMaxOpacity      = 0.82f;
 
