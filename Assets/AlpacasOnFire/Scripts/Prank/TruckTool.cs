@@ -8,12 +8,16 @@ namespace AlpacasOnFire.Prank
     /// <summary>
     /// 卡車。**強攻**那條解法，也是三個裡唯一的單次道具。
     ///
-    ///     按住右鍵 -> 舉起來（看得見，最多 2 秒）
+    ///     按住 Q -> 舉起來（看得見，蓄滿要 2 秒）
     ///        └─ 放開 -> 丟出去（**蓄多久就飛多遠**）
     ///              └─ 落地或撞到東西 -> 爆炸 -> 消失
     ///
-    /// **沒蓄力也丟得出去，只是丟到腳邊。** 蓄力不是「能不能用」的開關，
-    /// 是射程的旋鈕 —— 所以慌張的時候還是丟得出去（只是會炸到自己旁邊），
+    /// **它不需要自己的按鍵，也不是武器。** 卡車就是一個「很重的可丟物」，
+    /// 走的是所有東西都在走的 Q 蓄力丟出，只是它的 ThrowChargeSeconds 是 2 秒
+    /// （羊毛 0.15）。左鍵對它沒有作用 —— 拿著卡車還是可以操作機台、撿東西。
+    ///
+    /// 沒蓄滿也丟得出去，只是丟到腳邊。蓄力不是「能不能用」的開關，是射程的旋鈕，
+    /// 所以慌張的時候還是丟得出去（只是會炸到自己旁邊），
     /// 想砸遠處那隻紅毛羊就得站著舉滿兩秒、讓所有人看到你要出手。
     ///
     /// 爆炸是**範圍**的：半徑內所有人一起倒、身上的毛全部掉出來。
@@ -30,63 +34,38 @@ namespace AlpacasOnFire.Prank
         [Tooltip("爆炸的火球。平常關著，炸的時候脹大再消失。")]
         [SerializeField] private GameObject _blastVisual;
 
-        /// <summary>已經舉了多久。走 [Networked] 才能讓被害者看到蓄力。</summary>
-        [Networked] public float Charge { get; set; }
-
         /// <summary>爆炸動畫的殘餘時間。跑完就 Despawn。</summary>
         [Networked] private TickTimer BlastTimer { get; set; }
 
         /// <summary>已經引爆過了（避免爆炸動畫期間又被判定一次）。</summary>
         [Networked] private NetworkBool Exploded { get; set; }
 
-        public float Charge01 =>
-            Mathf.Clamp01(Charge / Mathf.Max(0.01f, GameTuning.TruckChargeSeconds));
-
         public bool IsExploding => Exploded;
+
+        /// <summary>卡車很重：蓄滿要 2 秒（羊毛 0.15）。</summary>
+        public override float ThrowChargeSeconds => GameTuning.ThrowChargeTruck;
+
+        /// <summary>
+        /// 左鍵也能蓄力丟。拿著卡車的時候左鍵沒有別的事好做 ——
+        /// 它不是武器（IsUsable 是 false），唯一的用法就是丟出去，
+        /// 所以兩個鍵都給它，不用特地去找 Q。
+        /// </summary>
+        public override bool ChargesOnPrimary => true;
 
         protected override string ActionVerb => "丟";
 
-        // 丟出去這件事由 PrankTick 的「放開」負責，按下的那一刻不出手
-        protected override bool IsReady(in InteractionContext ctx) => false;
-
-        protected override string NotReadyPrompt(in InteractionContext ctx)
-            => Charge <= 0.01f
-                ? "[按住右鍵] 舉起卡車，放開丟出"
-                : $"舉起來了… {Charge01 * 100f:F0}%（放開丟出）";
+        /// <summary>
+        /// **卡車不是武器。** 回 false 讓左鍵整個讓給情境互動 ——
+        /// 拿著卡車還是要能操作機台、撿東西、跟隊友互動。
+        /// 它唯一的用法是 Q 蓄力丟出去。
+        /// </summary>
+        protected override bool IsUsable(in InteractionContext ctx) => false;
 
         /// <summary>爆炸中的卡車不能撿 —— 它下一刻就不存在了。</summary>
         public override bool CanInteract(in InteractionContext ctx)
             => !Exploded && base.CanInteract(in ctx);
 
         protected override void Hit(IStaggerable target, in InteractionContext ctx) { /* 走爆炸，不是直擊 */ }
-
-        // ---------------- 蓄力與丟出 ----------------
-
-        public override void PrankTick(in InteractionContext ctx, bool held, float deltaTime)
-        {
-            if (!HasStateAuthority || Exploded) return;
-
-            if (held)
-            {
-                // 舉到滿就停在滿 —— 不自動丟出去，什麼時候放手是玩家的決定
-                if (Charge01 < 1f) Charge += deltaTime;
-                return;
-            }
-
-            if (Charge <= 0f) return;
-
-            // 放開 = 丟出去。蓄力決定初速，也就決定射程。
-            float speed = Mathf.Lerp(GameTuning.TruckThrowSpeedMin,
-                                     GameTuning.TruckThrowSpeedMax, Charge01);
-            Charge = 0f;
-
-            var player = ctx.Player;
-            if (player == null) return;
-
-            player.Carry.ReleaseHeld();      // 交出去但不銷毀 —— 它要飛出去
-            LaunchFrom(player, ctx.Direction, speed);
-            GameAudio.PlayAt(SfxId.Throw, transform.position);
-        }
 
         // ---------------- 爆炸 ----------------
 
@@ -134,15 +113,7 @@ namespace AlpacasOnFire.Prank
         public override void FixedUpdateNetwork()
         {
             base.FixedUpdateNetwork();
-            if (!HasStateAuthority) return;
-
-            // 一旦飛出去就把蓄力歸零。
-            // 這一行擋的是：舉到一半改用左鍵丟出去（或被隊友半空接走）的話，
-            // 蓄力值會留在卡車身上；下一個人拿到它的那一個 tick，PrankTick 會看到
-            // 「沒按著右鍵但 Charge > 0」而當成放手，卡車就自己飛出去了。
-            if (InFlight && Charge > 0f) Charge = 0f;
-
-            if (!Exploded) return;
+            if (!HasStateAuthority || !Exploded) return;
 
             // 動畫演完就收掉。Despawn 之後不能再碰任何欄位，所以放在最後。
             if (BlastTimer.Expired(Runner)) Runner.Despawn(Object);
@@ -157,8 +128,11 @@ namespace AlpacasOnFire.Prank
             if (_liftVisual != null)
             {
                 // 舉高 + 微微後仰，遠遠就看得出「那個人要丟東西了」。
-                // 飛出去之後歸零，不然會歪著飛。
-                float t = Exploded || InFlight ? 0f : Charge01;
+                //
+                // 蓄力值現在住在拿著它的那個玩家身上（PlayerCarry.ThrowCharge01），
+                // 不是卡車自己的欄位 —— Q 蓄力是所有可丟物共用的機制，
+                // 卡車只是把它畫出來。飛出去或爆炸時歸零，不然會歪著飛。
+                float t = Exploded || InFlight ? 0f : HolderThrowCharge01;
                 _liftVisual.localPosition = new Vector3(0f, t * 0.75f, 0f);
                 _liftVisual.localRotation = Quaternion.Euler(-t * 28f, 0f, 0f);
             }
@@ -194,8 +168,23 @@ namespace AlpacasOnFire.Prank
                 _liftVisual.localScale = Vector3.one * Mathf.Clamp01(1f - t);
         }
 
-        public override string DisplayName => Charge > 0.01f
-            ? $"卡車（舉起 {Charge01 * 100f:F0}%）"
-            : "卡車";
+        /// <summary>拿著它的人目前的 Q 蓄力進度。沒人拿著就是 0。</summary>
+        private float HolderThrowCharge01
+        {
+            get
+            {
+                var holder = Holder;
+                return holder != null && holder.Carry != null ? holder.Carry.ThrowCharge01 : 0f;
+            }
+        }
+
+        public override string DisplayName
+        {
+            get
+            {
+                float t = HolderThrowCharge01;
+                return t > 0.01f ? $"卡車（舉起 {t * 100f:F0}%）" : "卡車";
+            }
+        }
     }
 }

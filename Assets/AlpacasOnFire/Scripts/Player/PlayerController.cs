@@ -173,42 +173,61 @@ namespace AlpacasOnFire.Player
                 {
                     var ctx = _interactor.BuildContext();
 
-                    // Q：丟出的別名。左鍵接管丟出之後它變成「近距離硬要丟」的逃生口 ——
-                    // 中間卡著一台機器、想把毛丟到後面的輸送帶時，左鍵會被那台機器吃掉，
-                    // 這時候只剩 Q 丟得出去。不寫進教學，試玩發現沒人按再拿掉。
-                    if (pressed.IsSet(GameButton.ThrowCatch))
-                        _carry.HandleThrow(in ctx);
+                    // ---- 蓄力鍵：Q，拿著卡車時左鍵也算 ----
+                    //
+                    // 同一個鍵兩個動作，靠「按多久」分開：點按放下、長按丟出。
+                    // 放開的那一刻才決定是哪一個（見 ReleaseThrowCharge）。
+                    //
+                    // **邊緣是從「合成的按住狀態」推導的，不是用 GetPressed/GetReleased。**
+                    // 兩個鍵都能蓄力的話，用 Q 開始、用左鍵放開（或反過來）都要成立；
+                    // 逐鍵判邊緣的話那種混按會漏掉放開、卡車就永遠舉在手上。
+                    bool chargeOnPrimary = _carry.Held != null && _carry.Held.ChargesOnPrimary;
 
-                    if (pressed.IsSet(GameButton.Interact))
+                    // 開始一定要是**新按下**的那一刻。用「按著」當條件的話，
+                    // 按著左鍵撿起卡車會在下一個 tick 直接開始蓄力 ——
+                    // 玩家只是想撿起來，手指還沒放開就已經在舉了。
+                    bool chargeStart = pressed.IsSet(GameButton.ThrowCatch)
+                                    || (chargeOnPrimary && pressed.IsSet(GameButton.Interact));
+
+                    bool chargeHeld = input.Buttons.IsSet(GameButton.ThrowCatch)
+                                   || (chargeOnPrimary && input.Buttons.IsSet(GameButton.Interact));
+
+                    if (!_carry.ThrowCharging && chargeStart) _carry.BeginThrowCharge();
+
+                    if (_carry.ThrowCharging)
+                    {
+                        if (chargeHeld) _carry.TickThrowCharge(Runner.DeltaTime);
+                        else _carry.ReleaseThrowCharge(in ctx);
+                    }
+
+                    // ---- 左鍵／Space：對前面的目標做事 ----
+                    //
+                    // 手上的東西把左鍵拿去蓄力的時候（卡車），這裡要整個讓開 ——
+                    // 不然按一下會同時開始蓄力又把腳邊的東西撿起來。
+                    if (!chargeOnPrimary && pressed.IsSet(GameButton.Interact))
                         HandlePrimaryPress(in ctx);
 
-                    // E：吐口水。羊駝自帶的能力，不佔手、跟手上拿什麼無關。
+                    // ---- E：吐口水 ----
+                    // 羊駝自帶的能力，不佔手、跟手上拿什麼無關。
                     // 借用 GameButton.DefaultTool 這個列舉值（原本是「拿出隨身剃毛器」，
                     // 剃毛改成內建之後就空著了）—— NetInput 是連線架構的一部分，
                     // 不動它的列舉，只換綁定的意義。
                     if (pressed.IsSet(GameButton.DefaultTool))
                         TrySpit(in ctx);
 
-                    // 右鍵，依序：惡搞道具 -> 次要互動。
+                    // ---- 右鍵：只做設定類動作 ----
                     //
-                    // 手上拿著惡搞道具時右鍵**永遠屬於那個道具**（跟噴槍同一個原則），
-                    // 所以 TryPrank 回 true 就不再往下跑，不會出現「想打人結果打開了
-                    // 手提箱的選色面板」。
+                    // 手提箱選材料、放置模式取消。營業中基本上用不到。
+                    // **道具使用已經搬回左鍵**，右鍵不再有任何即時動作。
                     //
-                    // 放置預覽中右鍵**整個歸「取消放置」**（PlayerStallAgent 自己在本機讀）。
-                    // 這裡要完全讓開 —— 舉著機台的時候手上可能還拿著大蔥，
-                    // 不讓開的話按一下右鍵會同時取消放置又揮一下大蔥。
+                    // 放置預覽中右鍵整個歸「取消放置」（PlayerStallAgent 自己在本機讀），
+                    // 次要互動要讓開，不然會同時取消又打開選色面板。
                     bool useToolHeld = input.Buttons.IsSet(GameButton.UseTool);
 
-                    if (!IsPlacingDevice)
-                    {
-                        if (pressed.IsSet(GameButton.UseTool) && !_carry.TryPrank(in ctx))
-                            _interactor.TrySecondaryInteract();
+                    if (pressed.IsSet(GameButton.UseTool) && !IsPlacingDevice)
+                        _interactor.TrySecondaryInteract();
 
-                        // 卡車的蓄力吃**右鍵按住**，跟出手同一個鍵。
-                        _carry.TickPrank(in ctx, useToolHeld, Runner.DeltaTime);
-                    }
-
+                    // 噴槍的按住塗抹仍然在右鍵（它是「持續使用」不是「出手」）
                     _carry.TickTool(in ctx, useToolHeld, Runner.DeltaTime);
                 }
             }
@@ -232,44 +251,40 @@ namespace AlpacasOnFire.Player
             && _stallAgent.HasPending;
 
         /// <summary>
-        /// 左鍵／Space：所有的即時動作都收斂到這裡，依序判斷，第一個成立的就執行。
+        /// 左鍵／Space：**對前面的目標做事。** 依序判斷，第一個成立的就執行。
         ///
-        ///   1. 接得到滯空中的東西        -> 接住
-        ///   2. 互動範圍內找得到有效目標  -> 互動
-        ///   3. 手上有東西，而且面前**完全沒有任何互動物** -> 丟出
+        ///   1. 有東西朝你飛來            -> 接住（最優先）
+        ///   2. 手上拿著道具              -> 使用（大蔥揮擊）
+        ///   3. 互動範圍內找得到有效目標  -> 互動（撿起／放入／取出／敲鈴／交貨／剃毛）
         ///   4. 其他                      -> 不做事
         ///
-        /// 第 3 條的條件是關鍵：**「沒有任何互動物」不等於「互動失敗」**。
-        /// 機台就在面前但已經放滿、或成品還沒被拿走時 CanInteract 會回 false，
-        /// 那種情況必須落到第 4 條。否則玩家會在機台滿的時候把手上的毛
-        /// 往機台方向扔出去 —— 同樣的畫面、同樣的按鍵，因為一個看不見的狀態
-        /// 產生完全不同的結果。
+        /// **左鍵完全不丟東西。** 丟出與放下都歸 Q：
+        /// 之前左鍵在「面前空無一物」時會改成丟出，結果是同一個鍵在看不見的狀態
+        /// 之間切換意義 —— 想撿東西卻把手上的毛扔掉、拿著大蔥想打人卻先把大蔥丟出去。
+        /// 現在左鍵只有一個意思：對著前面那個東西動手。
         ///
-        /// 這樣切不會犧牲「扔進機台」：互動範圍 2.5 公尺、丟出射程約 7.8 公尺，
-        /// 兩者本來就分開。近的走過去放，遠的才需要丟，而遠的不在互動範圍內，
-        /// 自然會落到第 3 條 —— 距離替玩家做了判斷。
+        /// 第 2 順位要壓在互動前面：拿著大蔥面對地上的羊毛時，左鍵應該是揮大蔥，
+        /// 不是「放下大蔥去撿羊毛」。手上拿著武器就是要打人。
         ///
         /// 只在 StateAuthority 呼叫。
         /// </summary>
         private void HandlePrimaryPress(in InteractionContext ctx)
         {
-            // 1. 接住優先於情境互動：有東西滯空在接得到的範圍內時，一律先算接住
+            // 1. 接住優先於一切：有東西滯空在接得到的範圍內時，一律先算接住
             if (_carry.TryManualCatch()) return;
 
-            // 2. 正常的情境互動
+            // 2. 手上的道具優先於情境互動
+            if (_carry.TryPrank(in ctx)) return;
+
+            // 3. 正常的情境互動
             if (_interactor.TryInteract()) return;
 
-            // 3. 面前空無一物才丟。丟出走既有的 HandleThrow，不另外寫一套
-            if (_carry.HasItem && !_interactor.HasAnyTargetInRange())
-            {
-                _carry.HandleThrow(in ctx);
-                return;
-            }
-
             // 4. 面前有東西但現在不能用 -> 什麼都不做，給一聲拒絕音，
-            //    讓玩家知道按鍵有進去、是狀態不對。
-            //    空手對著空氣按左鍵不出聲 —— 那是最常見的誤按，每次都叫會很吵。
-            if (_carry.HasItem)
+            //    讓玩家知道按鍵有進去、是狀態不對（機台滿了、成品沒人拿、還沒開張）。
+            //
+            //    **面前空無一物就完全不出聲。** 對著空氣按左鍵是最常見的誤按，
+            //    每次都叫會很吵，而且那時候本來就沒有任何「做不到」的事情要回報。
+            if (_interactor.HasAnyTargetInRange())
                 GameAudio.PlayAt(SfxId.PlaceRejected, transform.position);
         }
 

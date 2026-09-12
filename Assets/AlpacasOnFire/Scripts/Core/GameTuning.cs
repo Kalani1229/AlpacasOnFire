@@ -43,9 +43,31 @@ namespace AlpacasOnFire.Core
         // 平視丟出時的水平射程約 7.8 公尺 ＝ 襯布網格 5 格多一點。
         // 速度拉高、上拋比例壓低 —— 射程一樣但飛得又快又平（滯空 0.5 秒，原本 0.62 秒）。
         // 平一點也比較好瞄準機台，扔進機台才有機會成功。
-        public const float ThrowSpeed          = 16f;    // m/s
+        public const float ThrowSpeed          = 16f;    // m/s（蓄滿力的初速）
         public const float ThrowUpwardRatio    = 0.18f;  // 往上加的比例
         public const float ThrowGravity        = 20f;
+
+        // ---------- Q：點按放下、長按蓄力丟出 ----------
+        //
+        // 同一個鍵做兩件事，靠「按多久」分開：
+        //   按一下就放 -> 放下（掉在腳邊）
+        //   按住再放開 -> 丟出，蓄多久就飛多遠
+        //
+        // 為什麼不拆成兩個鍵：放下與丟出是同一個意圖（我不要這個東西了）的
+        // 兩種力道，綁在同一個鍵上，手比較不用記東西。
+
+        /// <summary>按不到這麼久就算「點按」＝放下。太長會讓放下變得遲鈍。</summary>
+        public const float ThrowTapSeconds     = 0.12f;
+
+        /// <summary>沒蓄滿力的最低初速。**蓄一點點也丟得出去，只是很近。**</summary>
+        public const float ThrowSpeedMin       = 5f;
+
+        // 蓄滿力需要的時間 ＝ 道具的重量。輕的東西幾乎不用蓄，重的要站著舉。
+        // 這是「拿著重物就不能靈活行動」這條規則的時間版本。
+        public const float ThrowChargeLight    = 0.15f;  // 羊毛、染料、飾品 —— 幾乎瞬間
+        public const float ThrowChargeMedium   = 0.5f;   // 衣服、箱子、工具
+        public const float ThrowChargeHeavy    = 1.1f;   // 手提箱
+        public const float ThrowChargeTruck    = 2f;     // 卡車
         // 接住分兩層：
         //  自動 —— 空手 + 大致面向 + 小範圍，什麼都不用按
         //  主動 —— 按接住鍵（Space／左鍵），範圍大一點、也不要求面向，
@@ -255,13 +277,10 @@ namespace AlpacasOnFire.Core
         public const float SpitLifeSeconds      = 1.6f;
 
         // ---- 卡車（投擲物）----
-
-        /// <summary>卡車：舉多久算蓄滿。看得見的蓄力＝被害者有機會跑。</summary>
-        public const float TruckChargeSeconds   = 2f;
-
-        /// <summary>卡車的初速範圍。**沒蓄力也丟得出去，只是飛得近。**</summary>
-        public const float TruckThrowSpeedMin   = 6f;
-        public const float TruckThrowSpeedMax   = 18f;
+        //
+        // 卡車沒有自己的蓄力與初速數值 —— 它走的是所有可丟物共用的 Q 蓄力
+        // （ThrowChargeTruck / ThrowSpeedMin / ThrowSpeed），只是重量特別大。
+        // 它獨有的只有「落地會爆」這件事。
 
         /// <summary>卡車落地爆炸的波及半徑。</summary>
         public const float TruckBlastRadius     = 3.4f;

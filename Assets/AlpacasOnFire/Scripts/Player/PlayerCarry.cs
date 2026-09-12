@@ -111,20 +111,74 @@ namespace AlpacasOnFire.Player
         // 而是對著羊或隊友按左鍵就直接剃 —— 剃毛器只在動作的那一瞬間伸出來。
         // 見 PlayerController.TriggerShearVisual() 與 WoolNpc.Interact()。
 
-        // ---------------- 丟出（左鍵第 3 順位 / Q）----------------
+        // ---------------- Q：點按放下、長按蓄力丟出 ----------------
+
+        /// <summary>Q 已經按住多久。走 [Networked] 才能讓所有人看到蓄力動作。</summary>
+        [Networked] public float ThrowCharge { get; set; }
+
+        /// <summary>Q 現在是不是按著的。</summary>
+        [Networked] public NetworkBool ThrowCharging { get; set; }
+
+        /// <summary>蓄力進度 0~1。手上沒東西時是 0。道具視覺（卡車舉高）會讀它。</summary>
+        public float ThrowCharge01
+        {
+            get
+            {
+                var item = Held;
+                if (item == null || !ThrowCharging) return 0f;
+                return Mathf.Clamp01(ThrowCharge / Mathf.Max(0.01f, item.ThrowChargeSeconds));
+            }
+        }
+
+        /// <summary>Q 按下的那一刻。只在 StateAuthority 呼叫。</summary>
+        public void BeginThrowCharge()
+        {
+            if (!HasStateAuthority) return;
+            ThrowCharge = 0f;
+            ThrowCharging = true;
+        }
+
+        /// <summary>Q 按著的每一個 tick。只在 StateAuthority 呼叫。</summary>
+        public void TickThrowCharge(float deltaTime)
+        {
+            if (!HasStateAuthority || !ThrowCharging) return;
+
+            // 手上的東西中途不見了（被機台吃掉之類）就取消蓄力
+            if (!HasItem) { ThrowCharging = false; ThrowCharge = 0f; return; }
+
+            ThrowCharge += deltaTime;
+        }
 
         /// <summary>
-        /// 純粹的丟出，不做任何前置判斷 —— 要不要丟由呼叫端決定。
-        /// 兩個入口：PlayerController.HandlePrimaryPress 的第 3 順位（面前空無一物），
-        /// 以及 Q（近距離硬要丟的逃生口）。
+        /// Q 放開的那一刻。**這裡決定是放下還是丟出。**
+        ///
+        /// 點按（不到 0.12 秒）-> 放下，掉在腳邊。
+        /// 按住再放開 -> 丟出，初速按蓄力比例插值，所以蓄一半就飛一半遠。
+        ///
+        /// 不要求蓄滿才能丟：慌張的時候還是丟得出去，只是丟不遠。
+        /// 蓄力是射程的旋鈕，不是能不能用的開關。
+        ///
+        /// 只在 StateAuthority 呼叫。
         /// </summary>
-        public void HandleThrow(in InteractionContext ctx)
+        public void ReleaseThrowCharge(in InteractionContext ctx)
         {
-            if (!HasStateAuthority || !HasItem) return;
+            if (!HasStateAuthority) return;
+
+            float held = ThrowCharge;
+            bool wasCharging = ThrowCharging;
+            ThrowCharging = false;
+            ThrowCharge = 0f;
+
+            if (!wasCharging || !HasItem) return;
+
+            if (held < GameTuning.ThrowTapSeconds) { Drop(); return; }
 
             var item = Held;
+            float power = Mathf.Clamp01(held / Mathf.Max(0.01f, item.ThrowChargeSeconds));
+            float speed = Mathf.Lerp(GameTuning.ThrowSpeedMin, GameTuning.ThrowSpeed, power);
+
             HeldId = default;
-            item.LaunchFrom(_player, ctx.Direction);
+            item.LaunchFrom(_player, ctx.Direction, speed);
             GameAudio.PlayAt(SfxId.Throw, transform.position);
         }
 
@@ -195,10 +249,14 @@ namespace AlpacasOnFire.Player
         }
 
         /// <summary>
-        /// 按下右鍵：手上是惡搞道具就出手。
+        /// 按下左鍵：手上是可用的道具就出手。
         ///
-        /// 回傳 true 代表「這次右鍵被道具吃掉了」——**打不到人也算吃掉**。
-        /// 不然拿著大蔥對空氣按右鍵會掉回次要互動，把旁邊手提箱的選色面板打開。
+        /// 回傳 true 代表「這次左鍵被道具吃掉了」——**打不到人也算吃掉**。
+        /// 不然揮空的時候會掉回情境互動，順手把腳邊的羊毛撿起來、大蔥還被放下。
+        /// 手上有武器就是揮武器。
+        ///
+        /// 卡車回 false（它不是武器，是要用 Q 丟的重物），所以拿著卡車
+        /// 仍然可以按左鍵操作機台。
         ///
         /// 只在 StateAuthority 呼叫。
         /// </summary>
@@ -206,19 +264,6 @@ namespace AlpacasOnFire.Player
         {
             if (!HasStateAuthority) return false;
             return Held is Prank.PrankTool prank && prank.TryUse(in ctx);
-        }
-
-        /// <summary>
-        /// 惡搞道具的蓄力（卡車）。吃**右鍵按住**，跟出手同一個鍵。
-        ///
-        /// 另外開一條而不是塞進 IHoldTool，是為了不動噴槍那條已經在跑的路徑 ——
-        /// 那個介面的語意是「持續使用」，卡車是「蓄力後一次性爆發」，不一樣。
-        /// </summary>
-        public void TickPrank(in InteractionContext ctx, bool useToolHeld, float deltaTime)
-        {
-            if (!HasStateAuthority) return;
-            if (Held is Prank.PrankTool prank)
-                prank.PrankTick(in ctx, useToolHeld, deltaTime);
         }
     }
 }

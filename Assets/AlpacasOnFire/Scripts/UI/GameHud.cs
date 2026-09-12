@@ -116,6 +116,22 @@ namespace AlpacasOnFire.UI
                 new Vector2(0f, 0f), new Vector2(0f, 0f), new Vector2(0f, 0f),
                 new Vector2(28f, 32f), new Vector2(600f, 36f));
 
+            // 左下、攜帶物上面一行：Q 的用法 + 蓄力條
+            _carryHintLabel = UIFactory.Label("CarryHint", root, "", 20, TextAnchor.LowerLeft,
+                new Color(0.78f, 0.82f, 0.9f),
+                new Vector2(0f, 0f), new Vector2(0f, 0f), new Vector2(0f, 0f),
+                new Vector2(28f, 68f), new Vector2(600f, 28f));
+
+            _throwBarBg = UIFactory.Panel("ThrowBg", root, new Color(0f, 0f, 0f, 0.55f),
+                new Vector2(0f, 0f), new Vector2(0f, 0f), new Vector2(0f, 0f),
+                new Vector2(28f, 100f), new Vector2(220f, 14f));
+            _throwBarFill = UIFactory.Panel("ThrowFill", _throwBarBg.transform,
+                new Color(0.98f, 0.8f, 0.3f),
+                new Vector2(0f, 0f), new Vector2(0f, 1f), new Vector2(0f, 0.5f),
+                Vector2.zero, new Vector2(0f, 0f));
+            _throwBarFill.rectTransform.anchoredPosition = Vector2.zero;
+            _throwBarBg.gameObject.SetActive(false);
+
             // 右下：噴槍染劑量
             _sprayBarBg = UIFactory.Panel("SprayBg", root, new Color(0f, 0f, 0f, 0.55f),
                 new Vector2(1f, 0f), new Vector2(1f, 0f), new Vector2(1f, 0f),
@@ -381,7 +397,9 @@ namespace AlpacasOnFire.UI
             {
                 _promptLabel.text = "";
                 _carryLabel.text = "";
+                _carryHintLabel.text = "";
                 _prankLabel.text = "";
+                _throwBarBg.gameObject.SetActive(false);
                 _sprayBarBg.gameObject.SetActive(false);
                 _sprayLabel.text = "";
                 return;
@@ -402,26 +420,32 @@ namespace AlpacasOnFire.UI
             _carryLabel.text = held != null ? $"手上：{held.DisplayName}" : "手上：空";
 
             // 提示的判定順序**必須跟 PlayerController.HandlePrimaryPress 完全一致**，
-            // 不然會出現「提示說可以丟、按下去卻不丟」的落差。
-            //   接住 -> 互動 -> （手上有東西且面前空無一物）丟出 -> 什麼都不做
+            // 不然會出現「提示說可以做、按下去卻沒反應」的落差。
+            //   接住 -> 道具使用 -> 情境互動 -> 什麼都不做
+            //
+            // **左鍵不再有「丟出」**，所以這裡也不再有那一行 —— 丟出與放下都歸 Q，
+            // 由 UpdateCarryHint() 另外顯示。
             string prompt = null;
             if (p.Carry.FindCatchable(GameTuning.CatchManualRadius, requireFacing: false) != null)
             {
                 prompt = "[左鍵] 接住！";
             }
-            else
+            else if (held is Prank.PrankTool prankHeld)
+            {
+                var pctx = p.Interactor.BuildContext();
+                prompt = prankHeld.BuildPrompt(in pctx);
+            }
+
+            // 左鍵被拿去蓄力的東西（卡車），左鍵就不做情境互動了，
+            // 所以也不該顯示情境互動的提示 —— 顯示了按下去也不會發生。
+            if (string.IsNullOrEmpty(prompt) && (held == null || !held.ChargesOnPrimary))
             {
                 var target = p.Interactor.FindTarget(out var ctx);
                 if (target != null) prompt = target.GetPrompt(in ctx);
-
-                // 只有「面前真的空無一物」才顯示丟出。面前有東西但現在不能用
-                // （機台放滿了、成品還沒被拿走）要維持顯示該物件自己的拒絕提示，
-                // 因為那種情況按左鍵不會丟。
-                if (string.IsNullOrEmpty(prompt) && held != null && !p.Interactor.HasAnyTargetInRange())
-                    prompt = $"[左鍵] 丟出 {held.DisplayName}";
             }
             _promptLabel.text = prompt ?? "";
 
+            UpdateCarryHint(p, held);
             UpdatePrankHint(p, held);
 
             if (held is DyeCanisterTool canister)
@@ -442,25 +466,13 @@ namespace AlpacasOnFire.UI
         }
 
         /// <summary>
-        /// 惡搞的提示，獨立一行在主提示下面。
-        ///
-        /// 兩件事分開講，因為它們的條件不一樣：
-        ///   口水（E）永遠可以用，跟手上拿什麼無關 —— 所以永遠顯示
-        ///   大蔥／卡車（右鍵）只有拿在手上才有 —— 所以拿著才顯示
+        /// 口水（E）的提示。它是自帶能力，跟手上拿什麼無關，所以永遠顯示 ——
+        /// 冷卻中轉灰並顯示秒數，不然玩家會一直按、以為鍵壞了。
         /// </summary>
         private void UpdatePrankHint(PlayerController p, Items.CarriableItem held)
         {
             if (_prankLabel == null) return;
 
-            if (held is Prank.PrankTool prank)
-            {
-                var ctx = p.Interactor.BuildContext();
-                _prankLabel.text = prank.BuildPrompt(in ctx) ?? "";
-                _prankLabel.color = new Color(1f, 0.86f, 0.5f);
-                return;
-            }
-
-            // 冷卻中就把字轉灰並顯示秒數，不然玩家會一直按、以為鍵壞了
             if (p.SpitReady)
             {
                 _prankLabel.text = "[E] 吐口水";
@@ -475,6 +487,55 @@ namespace AlpacasOnFire.UI
         }
 
         private Text _prankLabel;
+
+        /// <summary>
+        /// Q 的提示 + 蓄力條。
+        ///
+        /// 「點按放下、長按丟出」這件事一定要寫出來 —— 同一個鍵兩個動作，
+        /// 不講的話玩家只會發現「按 Q 有時候丟出去有時候掉在腳邊」，
+        /// 完全不知道差別在哪。
+        ///
+        /// 蓄力條也不能省：重量差很多（羊毛 0.15 秒、卡車 2 秒），
+        /// 沒有條子玩家不知道還要按多久。
+        /// </summary>
+        private void UpdateCarryHint(PlayerController p, Items.CarriableItem held)
+        {
+            if (_carryHintLabel == null || _throwBarBg == null) return;
+
+            if (held == null)
+            {
+                _carryHintLabel.text = "";
+                _throwBarBg.gameObject.SetActive(false);
+                return;
+            }
+
+            float t = p.Carry.ThrowCharge01;
+            bool charging = t > 0.001f;
+
+            // 卡車的左鍵也拿來蓄力，提示要把兩個鍵都寫出來
+            string key = held.ChargesOnPrimary ? "左鍵/Q" : "Q";
+
+            _carryHintLabel.text = charging
+                ? $"放開丟出（{t * 100f:F0}%）"
+                : $"[{key}] 點按放下　[{key}] 長按丟出";
+            _carryHintLabel.color = charging
+                ? new Color(1f, 0.9f, 0.55f)
+                : new Color(0.78f, 0.82f, 0.9f);
+
+            _throwBarBg.gameObject.SetActive(charging);
+            if (charging)
+            {
+                _throwBarFill.rectTransform.sizeDelta = new Vector2(216f * t, -4f);
+                // 蓄滿轉綠 —— 一眼看得出「現在放手就是最遠」
+                _throwBarFill.color = t >= 0.999f
+                    ? new Color(0.45f, 0.95f, 0.5f)
+                    : new Color(0.98f, 0.8f, 0.3f);
+            }
+        }
+
+        private Text _carryHintLabel;
+        private Image _throwBarBg;
+        private Image _throwBarFill;
 
         private void UpdateFlashAndToast()
         {

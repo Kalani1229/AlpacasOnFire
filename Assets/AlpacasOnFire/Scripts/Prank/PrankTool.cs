@@ -8,9 +8,12 @@ namespace AlpacasOnFire.Prank
     /// 手持惡搞道具的共用底座（大蔥、卡車）。口水不在這裡 ——
     /// 它是羊駝自帶的能力，沒有實體道具，走 PlayerController.TrySpit()。
     ///
-    /// **這些道具走右鍵。** 左鍵已經被「接住 / 互動 / 丟出」三段佔滿了，
-    /// 拿著大蔥想打人卻先把大蔥丟出去是最容易發生的誤操作。右鍵原本是
-    /// 「設定類動作 + 持續使用工具」，出手歸在後者底下剛好。
+    /// **這些道具走左鍵**，優先權壓在情境互動前面 ——
+    /// 拿著大蔥面對地上的羊毛時，左鍵應該是揮大蔥，不是放下大蔥去撿羊毛。
+    ///
+    /// 曾經搬到右鍵過，那是因為當時左鍵在「面前空無一物」時會改成丟出，
+    /// 拿著大蔥想打人會先把大蔥扔掉。丟出整個搬到 Q 之後這個衝突就消失了，
+    /// 道具使用也就回到它本來該在的地方。
     ///
     /// 效果本身（StaggerStatus）不知道是誰打的，所以要加第四個惡搞道具，
     /// 只要繼承這支、覆寫 Hit()，其他一行都不用動。
@@ -26,28 +29,18 @@ namespace AlpacasOnFire.Prank
         /// <summary>真的打中了。只在 StateAuthority 呼叫。</summary>
         protected abstract void Hit(IStaggerable target, in InteractionContext ctx);
 
-        /// <summary>可以打了嗎（卡車要蓄滿力才行）。</summary>
-        protected virtual bool IsReady(in InteractionContext ctx) => true;
-
-        /// <summary>還沒準備好時的提示字。</summary>
-        protected virtual string NotReadyPrompt(in InteractionContext ctx) => null;
-
-        /// <summary>
-        /// 每個網路 tick 呼叫一次（只在 StateAuthority），held = **右鍵**是否按著。
-        /// 只有需要蓄力的道具會用到，預設什麼都不做。
-        /// </summary>
-        public virtual void PrankTick(in InteractionContext ctx, bool held, float deltaTime) { }
-
         // ---------------- 出手 ----------------
 
         /// <summary>
-        /// 按下右鍵。找準心前方的目標並出手。只在 StateAuthority 呼叫。
-        /// 打不到人也回傳 true —— 右鍵在拿著惡搞道具時**永遠屬於這個道具**，
-        /// 不能因為沒打到就掉回「次要互動」去打開手提箱面板。
+        /// 按下左鍵。找準心前方的目標並出手。只在 StateAuthority 呼叫。
+        ///
+        /// **打不到人也回傳 true。** 手上拿著道具時左鍵永遠屬於這個道具 ——
+        /// 不能因為沒打到就掉回情境互動，那會變成「揮空的時候會順手把腳邊的
+        /// 羊毛撿起來」，而且大蔥還得先被放下。手上有武器就是揮武器。
         /// </summary>
         public virtual bool TryUse(in InteractionContext ctx)
         {
-            if (!IsReady(in ctx)) return true;   // 蓄力中，吃掉這次右鍵但不出手
+            if (!IsUsable(in ctx)) return false;   // 這個道具現在不能用 -> 讓給情境互動
 
             var target = PrankTargeting.FindTargetInFront(in ctx);
             if (target == null) return true;
@@ -58,17 +51,24 @@ namespace AlpacasOnFire.Prank
         }
 
         /// <summary>
-        /// HUD 的提示字。拿著惡搞道具時，準心前方有沒有人都要講清楚，
-        /// 不然玩家會不知道右鍵現在有沒有用。
+        /// 這個道具現在算不算「能用的道具」。
+        /// 回 false 代表左鍵讓給情境互動 —— 卡車就是這樣：它不是武器，
+        /// 是要用 Q 丟出去的重物，所以拿著卡車按左鍵仍然可以撿東西、操作機台。
         /// </summary>
-        public string BuildPrompt(in InteractionContext ctx)
+        protected virtual bool IsUsable(in InteractionContext ctx) => true;
+
+        /// <summary>
+        /// HUD 的提示字。拿著道具時，準心前方有沒有人都要講清楚，
+        /// 不然玩家會不知道左鍵現在有沒有用。回 null 代表這個道具沒有話要說。
+        /// </summary>
+        public virtual string BuildPrompt(in InteractionContext ctx)
         {
-            if (!IsReady(in ctx)) return NotReadyPrompt(in ctx);
+            if (!IsUsable(in ctx)) return null;
 
             var target = PrankTargeting.FindTargetInFront(in ctx);
             return target != null
-                ? $"[右鍵] {ActionVerb}{target.StaggerDisplayName}"
-                : $"[右鍵] {ActionVerb}（前面沒有人）";
+                ? $"[左鍵] {ActionVerb}{target.StaggerDisplayName}"
+                : $"[左鍵] {ActionVerb}（前面沒有人）";
         }
     }
 }

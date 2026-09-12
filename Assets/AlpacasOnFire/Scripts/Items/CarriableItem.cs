@@ -118,6 +118,46 @@ namespace AlpacasOnFire.Items
             transform.position = SnapToGround(position);
         }
 
+        /// <summary>
+        /// 這個東西要蓄多久才丟得到最遠 —— 也就是它的**重量**。
+        ///
+        /// 羊毛幾乎瞬間、卡車要兩秒。重物不是「不能丟」，是「要站著舉一會兒」，
+        /// 所以在混亂中丟重物本身就是一種風險。
+        ///
+        /// 用 ItemKind 分級而不是每個 prefab 拉一個數字，是為了讓重量表集中在一處；
+        /// 特例（卡車）覆寫這支就好。
+        /// </summary>
+        public virtual float ThrowChargeSeconds => _kind switch
+        {
+            ItemKind.Wool        => GameTuning.ThrowChargeLight,
+            ItemKind.DyeMaterial => GameTuning.ThrowChargeLight,
+            ItemKind.Accessory   => GameTuning.ThrowChargeLight,
+            ItemKind.HairTonic   => GameTuning.ThrowChargeLight,
+
+            ItemKind.Garment     => GameTuning.ThrowChargeMedium,
+            ItemKind.Box         => GameTuning.ThrowChargeMedium,
+            ItemKind.DyeCanister => GameTuning.ThrowChargeMedium,
+            ItemKind.Shears      => GameTuning.ThrowChargeMedium,
+            ItemKind.Leek        => GameTuning.ThrowChargeMedium,
+
+            ItemKind.Suitcase    => GameTuning.ThrowChargeHeavy,
+            ItemKind.Truck       => GameTuning.ThrowChargeTruck,
+
+            _                    => GameTuning.ThrowChargeMedium,
+        };
+
+        /// <summary>
+        /// 左鍵也能拿來蓄力丟出嗎。
+        ///
+        /// 預設 false：左鍵是「對前面的目標做事」，丟出歸 Q。
+        /// 卡車是例外 —— 它唯一的用法就是丟出去，拿著它的時候左鍵沒有別的事好做，
+        /// 讓兩個鍵都能丟比較順手，不用特地去找 Q。
+        ///
+        /// 為 true 的東西，**拿在手上時左鍵不再做情境互動**（不然一按就會
+        /// 同時撿東西又開始蓄力）。要騰出手就先用 Q 點按放下。
+        /// </summary>
+        public virtual bool ChargesOnPrimary => false;
+
         public void LaunchFrom(PlayerController player, Vector3 direction)
             => LaunchFrom(player, direction, GameTuning.ThrowSpeed);
 
