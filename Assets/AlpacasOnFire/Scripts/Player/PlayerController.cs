@@ -348,9 +348,9 @@ namespace AlpacasOnFire.Player
             // 還是要呼叫 Move()，重力與擊退才會繼續作用，不然人會定在半空中。
             if (IsStaggered) moveInput = Vector2.zero;
 
-            // 移動方向永遠相對角色目前朝向
+            // 移動方向永遠相對角色目前朝向。
+            // 擺攤期間**不再有空氣牆** —— 攤位擺開之後玩家可以自由走出去。
             var wish = transform.rotation * new Vector3(moveInput.x, 0f, moveInput.y);
-            wish = ClampToStallZone(wish);
 
             // 擊退疊在移動之上。用 maxSpeed 放大而不是直接寫 Velocity ——
             // 寫 Velocity 會跟 NCC 內部用位移反推速度的做法打架（見 SuppressStepUpLaunch）。
@@ -366,34 +366,9 @@ namespace AlpacasOnFire.Player
             SuppressStepUpLaunch();
         }
 
-        /// <summary>
-        /// 擺攤期間把玩家關在「擺攤區域」（襯布 + 邊界）裡面。
-        ///
-        /// 做法是**把往外的移動分量砍掉**，而不是事後把位置拉回來 ——
-        /// 拉位置會跟 NetworkCharacterController 的內部快取打架、造成抖動，
-        /// 砍分量則會自然變成沿著邊界滑動，手感也比較好。
-        ///
-        /// 判定在襯布的本地座標做，所以襯布轉過角度也成立。
-        /// </summary>
-        private Vector3 ClampToStallZone(Vector3 wish)
-        {
-            var stall = StallManager.Instance;
-            if (stall == null || stall.Object == null || !stall.MatDeployed) return wish;
-
-            var rot = Quaternion.Euler(0f, stall.MatYaw, 0f);
-            var invRot = Quaternion.Inverse(rot);
-
-            var local = invRot * (transform.position - stall.MatCenter);
-            var localWish = invRot * wish;
-            float half = stall.MatSize * 0.5f + GameTuning.StallZoneMargin;
-
-            if (local.x >  half && localWish.x > 0f) localWish.x = 0f;
-            if (local.x < -half && localWish.x < 0f) localWish.x = 0f;
-            if (local.z >  half && localWish.z > 0f) localWish.z = 0f;
-            if (local.z < -half && localWish.z < 0f) localWish.z = 0f;
-
-            return rot * localWish;
-        }
+        // 擺攤期間的空氣牆（ClampToStallZone）已經移除。
+        // 原本它會把往襯布外的移動分量砍掉，把玩家關在攤位 + 2.5 公尺的範圍裡。
+        // 現在攤位擺開之後玩家可以自由走出去 —— 出去剃毛、追羊、撿東西都不會被擋。
 
         /// <summary>
         /// 修正「踩到矮台階會飛起來」。
@@ -632,6 +607,32 @@ namespace AlpacasOnFire.Player
         }
 
         public bool IsBodyFaded => _bodyFaded;
+
+        /// <summary>
+        /// 第一人稱時把自己的身體藏起來 —— 不然鏡頭在頭裡面，看到的是膠囊內壁。
+        ///
+        /// 用 shadowCastingMode = ShadowsOnly 而不是 renderer.enabled = false，
+        /// 理由是 **Render() 每一幀都會去寫 _garmentRenderer.enabled 與
+        /// _fleeceIndicator.enabled**（衣服穿了沒、身上還剩幾份毛）。
+        /// 動 enabled 的話這兩個會在下一幀被寫回來，衣服跟毛球就會浮在畫面中央閃。
+        /// ShadowsOnly 不碰 enabled，兩套邏輯互不干涉，而且影子還在，
+        /// 低頭還看得到自己的影子，不會有「我不存在」的感覺。
+        /// </summary>
+        public void SetBodyHidden(bool hidden)
+        {
+            if (_bodyHidden == hidden || _fadeRenderers == null) return;
+            _bodyHidden = hidden;
+
+            for (int i = 0; i < _fadeRenderers.Length; i++)
+            {
+                if (_fadeRenderers[i] == null) continue;
+                _fadeRenderers[i].shadowCastingMode = hidden
+                    ? UnityEngine.Rendering.ShadowCastingMode.ShadowsOnly
+                    : UnityEngine.Rendering.ShadowCastingMode.On;
+            }
+        }
+
+        private bool _bodyHidden;
 
         private void CacheFadeRenderers()
         {

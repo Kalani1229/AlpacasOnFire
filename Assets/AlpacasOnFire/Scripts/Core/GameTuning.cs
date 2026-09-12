@@ -171,7 +171,17 @@ namespace AlpacasOnFire.Core
         public const float StallDeployDuration     = 0.0f;   // 擺放／收回耗時（0 = 瞬間，先不做長按）
         public const float StallCollectRadius      = 1.2f;   // 收攤時清除襯布上物品的額外邊界
         /// <summary>擺攤期間玩家能走出襯布邊緣多遠。襯布 + 這個邊界＝「擺攤區域」。</summary>
+        // 擺攤期間的空氣牆已經移除，這個邊界值目前沒有人在用。
+        // 留著是因為它是「攤位範圍」的定義之一，之後要做「走太遠就自動收攤」
+        // 或是攤位地面的視覺範圍時會再用到。
         public const float StallZoneMargin         = 2.5f;
+
+        // ---------- 第一人稱（Tab 切換）----------
+        //
+        // 鏡頭從 HeadAnchor 再往前推一點點。0 的話鏡頭正好在頭的中心，
+        // 近裁切面會切進自己的鼻子（Snout 那塊方塊）；推出去一點就乾淨了。
+        // 推太多又會變成「靈魂出竅」，走到牆邊會穿牆，所以只推一點。
+        public const float FirstPersonForward      = 0.32f;
 
         // ---------- 開箱彈出動畫（純本機視覺，不同步）----------
         public const float StallPopDuration        = 0.35f;  // 單台裝備彈出的時間
