@@ -34,18 +34,72 @@ namespace AlpacasOnFire.Player
             if (!HasStateAuthority) return;
 
             TickAutoCatch();
+            ReconcileHeld();
+        }
 
-            // 自我修復：手上的東西被別人 Despawn 掉時，HeldId 會變成一個指不到東西的 id。
-            // 那會造成「UI 顯示手上有東西、畫面上卻什麼都沒有，而且再也放不掉」。
-            // 這裡每個 tick 檢查一次，發現就清掉。
+        /// <summary>
+        /// 「手上拿著什麼」是**兩邊各存一份**的狀態：
+        ///   PlayerCarry.HeldId    玩家 -> 物品
+        ///   CarriableItem.HolderId 物品 -> 玩家
+        ///
+        /// 兩邊都是 [Networked]，而且是分開寫的，所以有機會對不起來。
+        /// **只要往「物品認為自己被拿著、玩家卻不這麼認為」的方向歪，症狀就固定是那個 bug：**
+        /// 物品貼在手上（CarriableItem.LateUpdate 只看 HolderId），
+        /// 但是用不了（所有玩法只看 Carry.Held，也就是 HeldId），
+        /// 而其他操作完全正常 —— 因為除了這件物品以外什麼都沒壞。
+        ///
+        /// 與其一個一個堵住會讓它們分岔的路徑，不如每個 tick 對一次帳。
+        /// 之後再有人寫出新的分岔，也會在下一個 tick 自己被修好。
+        /// </summary>
+        private void ReconcileHeld()
+        {
             if (!HeldId.IsValid) return;
-            if (Runner != null && Runner.TryFindObject(HeldId, out var obj) && obj != null) return;
 
-            Debug.LogWarning("[攜帶] 手上的物件已經不存在了，清掉持有狀態。");
-            HeldId = default;
+            // 1. 指到一個已經不存在的物件（被別人 Despawn 了）
+            if (Runner == null || !Runner.TryFindObject(HeldId, out var obj) || obj == null)
+            {
+                Debug.LogWarning("[攜帶] 手上的物件已經不存在了，清掉持有狀態。");
+                HeldId = default;
+                return;
+            }
+
+            var item = obj.GetComponent<CarriableItem>();
+            if (item == null)
+            {
+                Debug.LogWarning("[攜帶] 手上的物件不是 CarriableItem，清掉持有狀態。");
+                HeldId = default;
+                return;
+            }
+
+            // 2. 兩邊對不起來：物品身上寫的持有者不是我
+            //    （或它根本不覺得被拿著）-> 以玩家這邊為準，把物品拉回來
+            if (item.HolderId != Object.Id)
+            {
+                Debug.LogWarning($"[攜帶] {item.DisplayName} 的持有者對不起來（物品說是 {item.HolderId}、" +
+                                 $"玩家說是我 {Object.Id}），重新綁定。");
+                item.AttachTo(_player);
+            }
         }
 
         // ---------------- 拾取 / 放下 ----------------
+
+        /// <summary>
+        /// 接手一個**剛生出來、而且持有者已經在生成回呼裡寫好**的物品。
+        ///
+        /// 跟 TryPickup 分開，是因為 TryPickup 會擋掉 `!Object.IsValid` 的物件 ——
+        /// 那道檢查是為了「不要撿已經被 Despawn 的東西」，但 Fusion 剛生出來
+        /// 還沒 Spawned() 的物件也會踩到它。連線時那個空窗期很常見，
+        /// 結果就是東西生出來了卻沒進手裡。見 ItemFactory.SpawnIntoHands。
+        ///
+        /// 只在 StateAuthority 呼叫。
+        /// </summary>
+        public void AdoptSpawned(CarriableItem item)
+        {
+            if (!HasStateAuthority || item == null || item.Object == null) return;
+
+            HeldId = item.Object.Id;
+            GameAudio.PlayAt(SfxId.Pickup, transform.position);
+        }
 
         public bool TryPickup(CarriableItem item)
         {
@@ -98,12 +152,21 @@ namespace AlpacasOnFire.Player
                 Runner.Despawn(item.Object);
         }
 
-        /// <summary>把手上的東西交出去但不銷毀（例如放進機台的暫存槽）。</summary>
+        /// <summary>
+        /// 把手上的東西交出去但不銷毀（例如手提箱展開成攤位）。
+        ///
+        /// **一定要連物品身上的 HolderId 一起清掉。** 只清 HeldId 的話，
+        /// 物品會繼續貼在手上（LateUpdate 只看 HolderId）卻再也用不了、放不下 ——
+        /// 那正是「東西卡在手上」那個 bug 的其中一條來源。
+        /// </summary>
         public CarriableItem ReleaseHeld()
         {
             if (!HasStateAuthority) return null;
+
             var item = Held;
             HeldId = default;
+
+            if (item != null) item.ReleaseHolder();
             return item;
         }
 

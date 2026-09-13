@@ -119,6 +119,19 @@ namespace AlpacasOnFire.Items
         }
 
         /// <summary>
+        /// 只解除「誰拿著我」，不動位置也不落地。
+        ///
+        /// 給那種「物件要被別的系統接管、但不是掉在地上」的情況用
+        /// （手提箱展開成攤位）。**不解除的話它會永遠貼在那個人手上** ——
+        /// LateUpdate 只看 HolderId，不管玩家那邊的 HeldId 已經清掉了。
+        /// </summary>
+        public void ReleaseHolder()
+        {
+            if (!HasStateAuthority) return;
+            HolderId = default;
+        }
+
+        /// <summary>
         /// 這個東西要蓄多久才丟得到最遠 —— 也就是它的**重量**。
         ///
         /// 羊毛幾乎瞬間、卡車要兩秒。重物不是「不能丟」，是「要站著舉一會兒」，
