@@ -461,7 +461,6 @@ MonoBehaviour:
     Raw: 0
   _liftVisual: {fileID: 6342995691647898576}
   _blastVisual: {fileID: 4685885647955258143}
-  _Charge: 0
 --- !u!114 &2541462922150153138
 MonoBehaviour:
   m_ObjectHideFlags: 0

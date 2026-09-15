@@ -116,6 +116,7 @@ namespace AlpacasOnFire.Stall
             if (!ok) return;
 
             ctx.Player.Carry.ConsumeHeld();
+            ctx.Player.TriggerWork();   // 交貨算「在工作」
         }
 
         public override void Render()

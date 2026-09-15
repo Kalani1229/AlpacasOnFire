@@ -163,6 +163,82 @@ namespace AlpacasOnFire.EditorTools
 
         // ---------------------------------------------------------------- 玩家
 
+        // ---------------- 羊駝模型 ----------------
+
+        private const string AlpacaModelPath = "Assets/AlpacasOnFire/Models/MD_Alpaca.fbx";
+        private const string AlpacaControllerPath =
+            "Assets/AlpacasOnFire/Animation/Player/AC_Alpaca.controller";
+
+        /// <summary>
+        /// 模型的縮放與位移。
+        ///
+        /// **這兩個值要人眼校過再填回來** —— FBX 的原始大小不會剛好等於
+        /// GameTuning.AlpacaHeight（1.8）。校的方法是把膠囊版與模型版擺在一起，
+        /// 調到「頭頂差不多齊」為止。
+        ///
+        /// 硬寫在這裡而不是留在 prefab 上，是因為每次跑「建置佔位資產」都會重建 prefab，
+        /// 在 Inspector 調的值下一次就被蓋掉了。
+        /// </summary>
+        private const float AlpacaModelScale = 1.0f;
+        private static readonly Vector3 AlpacaModelOffset = Vector3.zero;
+
+        /// <summary>
+        /// 建出玩家的身體視覺，回傳所有要參與「擋畫布時淡化」的 Renderer。
+        /// out fadeBody 是舊的單一 Renderer 欄位要接的那一個（膠囊版用）。
+        /// </summary>
+        private static Renderer[] BuildPlayerVisual(GameObject root, Material placeholderMat,
+                                                    out Renderer fadeBody)
+        {
+            var model = AssetDatabase.LoadAssetAtPath<GameObject>(AlpacaModelPath);
+
+            if (model == null)
+            {
+                // ---- 沒有美術模型：原本的膠囊 + 鼻子，一行都沒改 ----
+                var body = Prim(PrimitiveType.Capsule, "Body", root.transform,
+                    new Vector3(0f, GameTuning.AlpacaHeight * 0.5f, 0f),
+                    new Vector3(GameTuning.AlpacaRadius * 2f, GameTuning.AlpacaHeight * 0.5f,
+                                GameTuning.AlpacaRadius * 2f),
+                    placeholderMat, keepCollider: false);
+
+                // 面向指示（讓佔位角色看得出朝向）
+                Prim(PrimitiveType.Cube, "Snout", body.transform, new Vector3(0f, 0.55f, 0.55f),
+                     new Vector3(0.45f, 0.35f, 0.55f), placeholderMat, keepCollider: false);
+
+                fadeBody = body.GetComponent<Renderer>();
+                return new[] { fadeBody };
+            }
+
+            // ---- 有美術模型 ----
+            var visual = (GameObject)PrefabUtility.InstantiatePrefab(model);
+            visual.name = "Visual";
+            visual.transform.SetParent(root.transform, false);
+            visual.transform.localPosition = AlpacaModelOffset;
+            visual.transform.localScale = Vector3.one * AlpacaModelScale;
+
+            var animator = visual.GetComponent<Animator>();
+            if (animator == null) animator = visual.AddComponent<Animator>();
+
+            animator.runtimeAnimatorController =
+                AssetDatabase.LoadAssetAtPath<RuntimeAnimatorController>(AlpacaControllerPath);
+
+            if (animator.runtimeAnimatorController == null)
+                BuildReport.Error($"找不到 {AlpacaControllerPath} —— 羊駝會是靜止的。");
+
+            // **位移由 NetworkCharacterController 負責，不能讓動畫搶。**
+            // 開著 root motion 的話跑步動畫會自己把角色往前推，跟 NCC 打架，
+            // 在連線下會變成位置一直被拉扯。
+            animator.applyRootMotion = false;
+
+            // 模型的 Renderer 全部納入淡化：羊駝有六個材質，可能分在好幾個 Renderer 上，
+            // 只淡其中一個的話會剩下半隻不透明的羊駝擋在畫布前面。
+            var renderers = visual.GetComponentsInChildren<Renderer>(true);
+            fadeBody = renderers.Length > 0 ? renderers[0] : null;
+
+            BuildReport.Line($"  玩家使用美術模型 MD_Alpaca（{renderers.Length} 個 Renderer、" +
+                             $"縮放 {AlpacaModelScale}）");
+            return renderers;
+        }
+
         private static GameObject BuildPlayer(int layer)
         {
             var mat = Mat("M_Alpaca", PlaceholderPalette.PlayerColor(0));
@@ -171,15 +247,12 @@ namespace AlpacasOnFire.EditorTools
 
             var root = new GameObject("Alpaca_Player");
 
-            // 身體：膠囊，高度 = 羊駝站立高度
-            var body = Prim(PrimitiveType.Capsule, "Body", root.transform,
-                new Vector3(0f, GameTuning.AlpacaHeight * 0.5f, 0f),
-                new Vector3(GameTuning.AlpacaRadius * 2f, GameTuning.AlpacaHeight * 0.5f, GameTuning.AlpacaRadius * 2f),
-                mat, keepCollider: false);
-
-            // 面向指示（讓佔位角色看得出朝向）
-            Prim(PrimitiveType.Cube, "Snout", body.transform, new Vector3(0f, 0.55f, 0.55f),
-                 new Vector3(0.45f, 0.35f, 0.55f), mat, keepCollider: false);
+            // 身體：有美術模型就用模型，沒有就退回膠囊。
+            //
+            // 這個分支是**必要的**：prefab 是這支程式產生的，手動把模型拖進 prefab
+            // 的話，下一次跑「1. 建置佔位資產」就會被膠囊蓋回去。
+            // 退路也要留著 —— 拿不到 feat-art 的人跑這支還是要能得到一個能動的角色。
+            var bodyRenderers = BuildPlayerVisual(root, mat, out var fadeBody);
 
             var garment = Prim(PrimitiveType.Cube, "GarmentVisual", root.transform,
                 new Vector3(0f, 1.0f, 0f), new Vector3(0.85f, 0.55f, 0.75f), garmentMat, keepCollider: false);
@@ -229,12 +302,17 @@ namespace AlpacasOnFire.EditorTools
             root.AddComponent<Stall.PlayerStallAgent>();
             // 惡搞系統：被口水／大蔥／卡車打到的狀態。跟 NPC 掛的是同一支元件。
             root.AddComponent<Prank.StaggerStatus>();
+            // 動畫：讀同步的 NCC.Velocity 與 WorkTimer 決定 Idle／Run／Work。
+            // 膠囊版沒有 Animator，這支會自己靜默，不會吼錯誤。
+            root.AddComponent<PlayerAnimator>();
 
             SetRef(pc, "_handAnchor", hand.transform);
             SetRef(pc, "_headAnchor", head.transform);
             SetRef(pc, "_catchAnchor", catchA.transform);
             SetRef(pc, "_garmentAnchor", garmentAnchor.transform);
-            SetRef(pc, "_bodyRenderer", body.GetComponent<Renderer>());
+            // 單一 Renderer 的舊欄位留著（膠囊版用），模型版走陣列 —— 羊駝有六個材質
+            SetRef(pc, "_bodyRenderer", fadeBody);
+            SetRefArray(pc, "_bodyRenderers", bodyRenderers);
             SetRef(pc, "_garmentRenderer", garment.GetComponent<Renderer>());
             SetRef(pc, "_fleeceIndicator", fleece.GetComponent<Renderer>());
             SetRef(pc, "_shearsVisual", shears);

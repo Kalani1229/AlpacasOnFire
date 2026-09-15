@@ -33,6 +33,7 @@ namespace AlpacasOnFire.Machines
             if (!ok) return;   // 失敗：箱子留在手上
 
             ctx.Player.Carry.ConsumeHeld();
+            ctx.Player.TriggerWork();   // 出貨算「在工作」
         }
     }
 }

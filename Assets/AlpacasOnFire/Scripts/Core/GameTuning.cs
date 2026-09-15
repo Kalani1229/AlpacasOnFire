@@ -88,6 +88,20 @@ namespace AlpacasOnFire.Core
         // 所以要短到像揮一下、又長到看得見。
         public const float ShearVisualSeconds  = 0.35f;
 
+        // ---------- 角色動畫 ----------
+
+        /// <summary>
+        /// 水平速度超過這個值就播 Run。
+        ///
+        /// 調高 -> 慢速移動時播 Idle，看起來像滑步。
+        /// 調低 -> 被擊退、被推擠時也會播 Run，看起來像鬼壓床。
+        /// 0.6 是「明顯在走」的下限（玩家全速是 5）。
+        /// </summary>
+        public const float AnimRunThreshold    = 0.6f;
+
+        /// <summary>Work 動畫播多久。比剃毛器伸出來（0.35）稍長，動作才收得完。</summary>
+        public const float WorkAnimSeconds     = 0.45f;
+
         // ---------- 縫紉機 ----------
         public const int   SewingWoolRequired  = 1;      // 1 份羊毛 = 1 件衣服
         public const float SewingProcessSeconds= 6.0f;

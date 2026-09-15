@@ -158,6 +158,7 @@ namespace AlpacasOnFire.Machines
 
             Remaining--;
             GameAudio.PlayAt(SfxId.Pickup, transform.position);
+            ctx.Player.TriggerWork();   // 從素材箱拿料算「在工作」
         }
 
         // ---------------- 外觀 ----------------

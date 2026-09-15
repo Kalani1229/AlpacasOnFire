@@ -38,7 +38,12 @@ namespace AlpacasOnFire.Player
         [SerializeField] private Transform _garmentAnchor;
 
         [Header("Visual")]
+        [Tooltip("膠囊佔位版的身體。美術模型版會是模型的第一個 Renderer。")]
         [SerializeField] private Renderer _bodyRenderer;
+
+        [Tooltip("身體的全部 Renderer。羊駝模型有六個材質、可能分在多個 Renderer 上，" +
+                 "淡化與藏身體要一次處理掉。留空就退回只用 _bodyRenderer。")]
+        [SerializeField] private Renderer[] _bodyRenderers;
         [SerializeField] private Renderer _garmentRenderer;
         [SerializeField] private Renderer _fleeceIndicator;
         [Tooltip("剃毛器。平常收在毛裡看不見，剃毛的瞬間才伸出來。由建置工具自動接上。")]
@@ -66,12 +71,22 @@ namespace AlpacasOnFire.Player
         /// <summary>吐口水的冷卻。</summary>
         [Networked] private TickTimer SpitTimer { get; set; }
 
+        /// <summary>
+        /// 「正在動手做事」的殘餘時間，給 Work 動畫用。
+        ///
+        /// 走 [Networked] 而不是本機旗標：動畫必須由**同步狀態**驅動，
+        /// 不然隊友那邊只會看到你原地滑行。
+        /// </summary>
+        [Networked] public TickTimer WorkTimer { get; set; }
+
         [Networked] private NetworkButtons PreviousButtons { get; set; }
 
         private NetworkCharacterController _ncc;
         private PlayerCarry _carry;
         private Renderer[] _fadeRenderers;
-        private Material[] _fadeOriginals;
+
+        /// <summary>每個 Renderer 原本的**全部**材質槽。淡化之後要一槽一槽還原回去。</summary>
+        private Material[][] _fadeOriginals;
         private bool _bodyFaded;
         private PlayerInteractor _interactor;
         private PlayerStallAgent _stallAgent;
@@ -469,6 +484,18 @@ namespace AlpacasOnFire.Player
         }
 
         /// <summary>
+        /// 做了一個「動手」的動作，播 Work 動畫。只在 StateAuthority 呼叫。
+        ///
+        /// **Work 是「在工作」，不是「有動作」** —— 剃毛、操作機台、交貨、拿料才算。
+        /// 撿東西、丟東西、走路都不呼叫它，不然 Work 會一直閃、變成沒有意義的抖動。
+        /// </summary>
+        public void TriggerWork(float seconds = GameTuning.WorkAnimSeconds)
+        {
+            if (!HasStateAuthority) return;
+            WorkTimer = TickTimer.CreateFromSeconds(Runner, seconds);
+        }
+
+        /// <summary>
         /// 伸出剃毛器。**這是剃的那一方呼叫的**（不是被剃的那一方），
         /// 所以要傳 ctx.Player 而不是 this。
         ///
@@ -481,6 +508,10 @@ namespace AlpacasOnFire.Player
         {
             if (!HasStateAuthority) return;
             ShearVisualTimer = TickTimer.CreateFromSeconds(Runner, GameTuning.ShearVisualSeconds);
+
+            // 剃毛一定也是「在工作」。綁在一起而不是要求每個呼叫點各寫一行 ——
+            // 剃毛的入口有兩個（NPC 與隊友），分開寫遲早會漏掉一個。
+            TriggerWork();
         }
 
         /// <summary>
@@ -583,10 +614,78 @@ namespace AlpacasOnFire.Player
         private Quaternion _bodyBaseRotation = Quaternion.identity;
         private bool _bodyTiltApplied;
 
+        /// <summary>
+        /// 材質名稱裡有這些字的才會被刷上玩家識別色。
+        ///
+        /// **不能整隻刷。** 羊駝有六個材質（Body / DarkBody / Eye / Fur / Mouth / Pupil），
+        /// 全部塗成藍色的話眼睛嘴巴一起不見，美術就白做了。
+        /// 只挑毛的部分上色，深色部位與五官保留原樣 —— 這樣既分得出玩家、
+        /// 又留得住造型。
+        ///
+        /// 「Dark」要排除：DarkBody 是深色的毛，留著才有兩層次，
+        /// 跟亮部刷成同一個顏色會變成一片死板的色塊。
+        /// </summary>
+        private static readonly string[] TintMaterialKeywords = { "Fur", "Body" };
+        private const string TintMaterialExclude = "Dark";
+
+        /// <summary>
+        /// 要上色的 (Renderer, 材質索引)。在 Spawned 時掃一次就好。
+        ///
+        /// 需要索引是因為角色模型通常是**一個 SkinnedMeshRenderer 掛六個材質**，
+        /// 不是六個 Renderer —— 對整個 Renderer 設 MaterialPropertyBlock 會連眼睛一起塗。
+        /// </summary>
+        private readonly List<(Renderer renderer, int index)> _tintTargets = new();
+        private bool _tintTargetsCached;
+
+        private void CacheTintTargets()
+        {
+            if (_tintTargetsCached) return;
+            _tintTargetsCached = true;
+            _tintTargets.Clear();
+
+            // 膠囊版：沒有陣列，整個 Renderer 上色（材質只有一個，不會誤傷）
+            if (_bodyRenderers == null || _bodyRenderers.Length == 0)
+            {
+                if (_bodyRenderer != null) _tintTargets.Add((_bodyRenderer, -1));
+                return;
+            }
+
+            foreach (var r in _bodyRenderers)
+            {
+                if (r == null) continue;
+                var mats = r.sharedMaterials;
+                for (int i = 0; i < mats.Length; i++)
+                {
+                    if (mats[i] == null) continue;
+                    string n = mats[i].name;
+
+                    if (n.Contains(TintMaterialExclude)) continue;
+                    foreach (var key in TintMaterialKeywords)
+                    {
+                        if (!n.Contains(key)) continue;
+                        _tintTargets.Add((r, i));
+                        break;
+                    }
+                }
+            }
+
+            // 一個都沒對到：**寧可不上色也不要整隻塗掉**。
+            // 會走到這裡通常代表 FBX 的材質沒接上（Unity 自己生了一組預設材質），
+            // 那時候把整隻塗藍只會讓人更難發現真正的問題。
+            if (_tintTargets.Count == 0 && HasInputAuthority)
+                Debug.LogWarning("[羊駝] 找不到可以上色的毛材質（要含 Fur 或 Body）。" +
+                                 "玩家識別色不會顯示 —— 多半是 FBX 的材質沒有接上，" +
+                                 "到 MD_Alpaca.fbx 的 Inspector > Materials 按 Search and Remap。");
+        }
+
         private void ApplyBodyColor()
         {
-            if (_bodyRenderer == null) return;
-            Tint(_bodyRenderer, PlaceholderPalette.PlayerColor(ColorIndex));
+            CacheTintTargets();
+            if (_tintTargets.Count == 0) return;
+
+            var color = PlaceholderPalette.PlayerColor(ColorIndex);
+            for (int i = 0; i < _tintTargets.Count; i++)
+                Tint(_tintTargets[i].renderer, color, _tintTargets[i].index);
         }
 
         /// <summary>
@@ -601,8 +700,18 @@ namespace AlpacasOnFire.Player
             _bodyFaded = faded;
             for (int i = 0; i < _fadeRenderers.Length; i++)
             {
-                if (_fadeRenderers[i] == null) continue;
-                _fadeRenderers[i].sharedMaterial = faded ? _fadeMaterial : _fadeOriginals[i];
+                var r = _fadeRenderers[i];
+                if (r == null || _fadeOriginals[i] == null) continue;
+
+                // **要換掉每一個材質槽，不能只寫 sharedMaterial。**
+                // sharedMaterial 只會動第 0 槽 —— 羊駝是一個 Renderer 掛六個材質，
+                // 只換第 0 槽的話會剩下五片不透明的羊駝擋在畫布前面。
+                int n = _fadeOriginals[i].Length;
+                var next = new Material[n];
+                for (int m = 0; m < n; m++)
+                    next[m] = faded ? _fadeMaterial : _fadeOriginals[i][m];
+
+                r.sharedMaterials = next;
             }
         }
 
@@ -637,22 +746,38 @@ namespace AlpacasOnFire.Player
         private void CacheFadeRenderers()
         {
             _fadeRenderers = GetComponentsInChildren<Renderer>(true);
-            _fadeOriginals = new Material[_fadeRenderers.Length];
+
+            // 每個 Renderer 的**全部**材質槽都要記，不是只記第 0 槽 ——
+            // 角色模型是一個 Renderer 掛六個材質，只記一個就還原不回去。
+            _fadeOriginals = new Material[_fadeRenderers.Length][];
             for (int i = 0; i < _fadeRenderers.Length; i++)
-                _fadeOriginals[i] = _fadeRenderers[i] != null ? _fadeRenderers[i].sharedMaterial : null;
+                _fadeOriginals[i] = _fadeRenderers[i] != null
+                    ? _fadeRenderers[i].sharedMaterials
+                    : null;
         }
 
-        private void Tint(Renderer r, Color c)
+        private void Tint(Renderer r, Color c) => Tint(r, c, -1);
+
+        /// <summary>
+        /// materialIndex &gt;= 0 時只塗那一個材質槽，-1 是整個 Renderer。
+        /// 角色模型是一個 Renderer 掛多個材質，所以一定要能指定槽位。
+        /// </summary>
+        private void Tint(Renderer r, Color c, int materialIndex)
         {
             // 淡出時連 MaterialPropertyBlock 的顏色也要降 alpha，
             // 不然會蓋掉半透明材質原本的透明度
             c.a = _bodyFaded ? GameTuning.LocalPlayerFadeAlpha : 1f;
             if (r == null) return;
             _mpb ??= new MaterialPropertyBlock();
-            r.GetPropertyBlock(_mpb);
+
+            if (materialIndex < 0) r.GetPropertyBlock(_mpb);
+            else r.GetPropertyBlock(_mpb, materialIndex);
+
             _mpb.SetColor("_BaseColor", c);
             _mpb.SetColor("_Color", c);
-            r.SetPropertyBlock(_mpb);
+
+            if (materialIndex < 0) r.SetPropertyBlock(_mpb);
+            else r.SetPropertyBlock(_mpb, materialIndex);
         }
 
         // ---------------- IGarmentHost（隊友可以幫你穿衣服、噴漆） ----------------

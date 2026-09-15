@@ -153,6 +153,7 @@ namespace AlpacasOnFire.Machines
 
             var colour = ctx.Held.Spec.Color;
             ctx.Player.Carry.ConsumeHeld();
+            ctx.Player.TriggerWork();   // 放入羊毛算「在工作」
             InsertWool(colour);
         }
 

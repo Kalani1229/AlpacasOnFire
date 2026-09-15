@@ -210,6 +210,7 @@ namespace AlpacasOnFire.Machines
             HasOutput = false;
             OutputSpec = default;
             GameAudio.PlayAt(SfxId.Pickup, transform.position);
+            ctx.Player.TriggerWork();   // 取出成品算「在工作」
             return true;
         }
 
