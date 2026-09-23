@@ -80,6 +80,10 @@ namespace AlpacasOnFire.DebugTools
             Binding.MakeItem(Key.Digit7, "7", ItemKind.Leek, "大蔥"),
             Binding.MakeItem(Key.Digit8, "8", ItemKind.Truck, "卡車"),
 
+            // 絲線：織布機唯一的原料。有這個鍵才能單獨測織布機 ——
+            // 不然每次都得先跑一趟紡線機按住 3.5 秒，測一件衣服要花半分鐘。
+            Binding.MakeItem(Key.Digit9, "9", ItemKind.Thread, "紅絲線", DyeColorType.Red),
+
             // 對自己施加惡搞效果，用來單人測試「被打到是什麼感覺」。
             // **一個鍵輪流三種**：致盲 -> 擊退 -> 暈倒 -> 再回到致盲。
             // 三個一起上的話畫面會糊成一團，分不出哪個效果長什麼樣。

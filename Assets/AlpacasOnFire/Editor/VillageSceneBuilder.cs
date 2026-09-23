@@ -115,6 +115,11 @@ namespace AlpacasOnFire.EditorTools
             if (!catalog.items.Any(e => e.kind == ItemKind.Shears && e.prefab != null))
                 missing.Add("剃毛器 prefab（E 鍵的隨身工具需要它）");
 
+            // 絲線是紡線機的產出、織布機唯一的原料 —— 少了它整條產線中間會斷掉，
+            // 而且斷的地方沒有任何錯誤訊息：紡線機紡完，手上什麼都沒有。
+            if (!catalog.items.Any(e => e.kind == ItemKind.Thread && e.prefab != null))
+                missing.Add("絲線 prefab（紡線機紡完會拿不到東西）");
+
             if (npc.prefab != null && npc.prefab.GetComponent<Customer>() == null)
                 missing.Add("WoolNpc prefab 沒有 Customer 元件 —— 顧客系統不會運作");
 
@@ -233,7 +238,8 @@ namespace AlpacasOnFire.EditorTools
             if (stall != null)
             {
                 SetBool(stall, "_villageLoadout", true);
-                BuildReport.Line("  StallManager 切換成 Village loadout（織布機／交貨窗口／輸送帶 x2）");
+                BuildReport.Line("  StallManager 切換成 Village loadout" +
+                                 "（紡線機／織布機 x2／交貨窗口／輸送帶 x2）");
 
                 // run 循環只在羊駝村生效。Stall_Test 的 StallManager 不會被碰到，
                 // 那邊維持 _runMode = false，可以無限輪次玩下去。

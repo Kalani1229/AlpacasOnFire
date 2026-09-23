@@ -80,23 +80,31 @@ namespace AlpacasOnFire.Stall
         /// 兩台織布機，一台織 T-shirt、一台織襯衫。一台機器只做一種版型，
         /// 所以「要接哪些版型的單」變成佈置時的取捨，不是白拿的。
         ///
+        /// 加入紡線機之後產線變成三段，預設佈局由南往北就是生產順序：
+        ///
         ///     z=6                   [交貨窗口]
         ///     z=5                   [輸送帶↑]
         ///     z=4                   [輸送帶↑]
         ///     z=3   [襯衫織布機]    [T恤織布機]
+        ///     z=2                   [紡線機]
         ///            x=2             x=3
+        ///
+        /// **紡線機刻意不跟任何一條輸送帶正交相鄰。** 它本來就沒有自動出貨
+        /// （見 SpinningMachine.TryTakeOutput 的註解），但排在輸送帶旁邊會讓玩家
+        /// 誤以為它會自己送 —— 看起來會自動的東西卻不會動，比明擺著要手拿更難懂。
         ///
         /// **只有 T恤織布機接得到輸送帶**（它在 x=3 這條線上）。襯衫織布機的成品
         /// 要玩家自己拿去交貨窗口，或者丟到輸送帶上。這是刻意留的不對稱 ——
         /// 預設佈局不該是最佳解，玩家把兩台對調、或自己補一條輸送帶都是有意義的決定。
         ///
-        /// 手提箱固定在襯布背緣外（不佔格子），玩家從素材箱拿料、走到織布機、
-        /// 成品上輸送帶送到交貨窗口。
+        /// 手提箱固定在襯布背緣外（不佔格子），玩家從素材箱拿料、走到紡線機按住紡成線、
+        /// 再送到織布機，成品上輸送帶送到交貨窗口。
         /// </summary>
         public static readonly StallLoadout Village = new(
             "Village",
             new[]
             {
+                LevelElementType.SpinningMachine,
                 LevelElementType.WeavingMachine,
                 LevelElementType.WeavingMachineShirt,
                 LevelElementType.DeliveryCounter,
@@ -110,10 +118,14 @@ namespace AlpacasOnFire.Stall
                 StallSlotRecord.Create(LevelElementType.Conveyor,            3, 4, (int)StallFacing.North),
                 StallSlotRecord.Create(LevelElementType.WeavingMachine,      3, 3, (int)StallFacing.North),
                 StallSlotRecord.Create(LevelElementType.WeavingMachineShirt, 2, 3, (int)StallFacing.North),
+                StallSlotRecord.Create(LevelElementType.SpinningMachine,     3, 2, (int)StallFacing.North),
             },
             new[]
             {
                 LevelElementType.DeliveryCounter,
+                // 沒有紡線機就沒有絲線，織布機連第一份料都收不到 ——
+                // 讓它擋在開張前面，比讓玩家開張之後才發現做不出東西好。
+                LevelElementType.SpinningMachine,
                 LevelElementType.WeavingMachine,
                 LevelElementType.WeavingMachineShirt,
             },

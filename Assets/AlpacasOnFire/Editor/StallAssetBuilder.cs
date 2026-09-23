@@ -45,6 +45,7 @@ namespace AlpacasOnFire.EditorTools
                 BuildWeavingMachine(LevelElementType.WeavingMachineShirt, PatternType.Shirt,
                                     "Machine_WeavingMachineShirt", "M_WeavingMachineShirt",
                                     new Color(0.32f, 0.45f, 0.62f))));
+            Add(failures, "Machine_SpinningMachine", () => outElements.Add(BuildSpinningMachine()));
             Add(failures, "Machine_MaterialCrate", () => outElements.Add(BuildMaterialCrate()));
             Add(failures, "Level_SuitcaseSpawn", () => outElements.Add(BuildSuitcaseSpawnMarker()));
 
@@ -420,6 +421,98 @@ namespace AlpacasOnFire.EditorTools
             return new GameCatalog.ElementEntry
             {
                 type = type,
+                prefab = prefab,
+            };
+        }
+
+        // ---------------------------------------------------------------- 紡線機
+
+        /// <summary>
+        /// 紡線機：羊毛 → 絲線，生產鏈的第一段。
+        ///
+        /// 外觀上有三件事是**功能性的**，不是裝飾：
+        ///
+        ///  - **待料槽的小球要在機台側邊、看得見。** 負責丟的人站在素材箱那邊，
+        ///    他要從遠處判斷「還有沒有空位」，不會走過來讀提示字。
+        ///  - **紡輪要看得出在轉。** 隊友要能一眼看出「那台正在被人操作」，
+        ///    不然兩個人會同時跑去按同一台。
+        ///  - **機體顏色跟兩台織布機都差很多**（冷灰綠）。三台機器會並排在同一條動線上，
+        ///    放錯機台的代價是走一趟回頭路。
+        /// </summary>
+        private static GameCatalog.ElementEntry BuildSpinningMachine()
+        {
+            var bodyMat  = Mat("M_SpinningMachine", new Color(0.40f, 0.52f, 0.46f));
+            var wheelMat = Mat("M_SpinWheel", new Color(0.62f, 0.50f, 0.32f));   // 木質紡輪
+            var slotMat  = Mat("M_SpinSlot", PlaceholderPalette.Wool);
+            var lightMat = Mat("M_StatusLight", new Color(0.3f, 0.9f, 0.4f));
+            var fillMat  = Mat("M_SpinFill", new Color(0.95f, 0.75f, 0.15f));
+
+            float h = GameTuning.MachineHeight;
+            float w = GameTuning.MachineFootprint;
+
+            var root = new GameObject("Machine_SpinningMachine");
+
+            var body = Prim(PrimitiveType.Cube, "Body", root.transform,
+                new Vector3(0f, h * 0.5f, 0f), new Vector3(w, h, w), bodyMat);
+
+            // 紡輪：繞 Y 軸轉的那一塊。掛在自己的 pivot 底下，
+            // 轉它不會牽動機體本身，也不會動到 DeployHandle 的碰撞體。
+            var spinPivot = Empty("SpinPivot", root.transform, new Vector3(0f, h + 0.18f, 0f));
+            Prim(PrimitiveType.Cylinder, "Wheel", spinPivot.transform, Vector3.zero,
+                 new Vector3(0.62f, 0.05f, 0.62f), wheelMat, keepCollider: false);
+
+            // 輪輻：沒有它的話圓柱轉起來完全看不出在動
+            for (int i = 0; i < 3; i++)
+            {
+                var spoke = Prim(PrimitiveType.Cube, $"Spoke{i}", spinPivot.transform,
+                                 new Vector3(0f, 0.04f, 0f), new Vector3(0.62f, 0.02f, 0.07f),
+                                 wheelMat, keepCollider: false);
+                spoke.transform.localRotation = Quaternion.Euler(0f, i * 60f, 0f);
+            }
+
+            // 原料槽：機台頂面正中偏前，玩家站在操作面就看得到
+            var woolSlot = Prim(PrimitiveType.Sphere, "WoolSlot", root.transform,
+                new Vector3(0f, h + 0.14f, -0.32f), Vector3.one * 0.26f, slotMat, keepCollider: false);
+            woolSlot.GetComponent<Renderer>().enabled = false;
+
+            // 待料槽：**側面**（+X），刻意不跟原料槽擺在一起 ——
+            // 遠處看過來要分得出「機器裡那份」跟「排隊等的那份」
+            var queuedSlot = Prim(PrimitiveType.Sphere, "QueuedSlot", root.transform,
+                new Vector3(w * 0.5f + 0.1f, h * 0.72f, 0f), Vector3.one * 0.22f, slotMat,
+                keepCollider: false);
+            queuedSlot.GetComponent<Renderer>().enabled = false;
+
+            var status = Prim(PrimitiveType.Sphere, "StatusLight", root.transform,
+                new Vector3(0.45f, h + 0.12f, -0.45f), Vector3.one * 0.18f, lightMat, keepCollider: false);
+
+            // 進度條：跟其他機台同一套畫法，只在有料時顯示、由左往右長
+            var bar = Prim(PrimitiveType.Cube, "ProgressBar", root.transform,
+                new Vector3(0f, h + 0.30f, -0.6f), new Vector3(1f, 0.09f, 0.09f),
+                fillMat, keepCollider: false);
+            bar.SetActive(false);
+
+            // 操作面在背面（-Z），跟其他機台一致
+            var interact = Empty("InteractionAnchor", root.transform, new Vector3(0f, h * 0.6f, -0.75f));
+
+            root.AddComponent<NetworkObject>();
+            var m = root.AddComponent<SpinningMachine>();
+            SetRef(m, "_interactionAnchor", interact.transform);
+            SetRef(m, "_statusLight", status.GetComponent<Renderer>());
+            SetRef(m, "_bodyRenderer", body.GetComponent<Renderer>());
+            SetRef(m, "_woolSlot", woolSlot.GetComponent<Renderer>());
+            SetRef(m, "_queuedSlot", queuedSlot.GetComponent<Renderer>());
+            SetRef(m, "_progressBar", bar.transform);
+            // **一定要指定 _spinVisual**：沒指定的話 SpinningMachine 會退而轉 _bodyRenderer
+            // 的 transform，那會把整台機器（含子物件）一起轉起來。
+            SetRef(m, "_spinVisual", spinPivot.transform);
+
+            AddDeployHandle(root, LevelElementType.SpinningMachine,
+                            new Vector3(0f, h * 0.5f, 0f), new Vector3(w * 1.25f, h, w * 1.25f));
+
+            var prefab = SavePrefab(root, "Machine_SpinningMachine");
+            return new GameCatalog.ElementEntry
+            {
+                type = LevelElementType.SpinningMachine,
                 prefab = prefab,
             };
         }

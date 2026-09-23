@@ -413,6 +413,16 @@ namespace AlpacasOnFire.Core
         public static int StallTargetFor(int round)
             => Mathf.RoundToInt(StallTargetBase * Mathf.Pow(StallTargetGrowth, Mathf.Max(0, round - 1)));
 
+        // ---------- 紡線機 ----------
+        //
+        // 這台機器的特別之處是**有人必須待在原地**。其他機台都是射後不理，
+        // 紡線是反過來的：放進去之後要有人按著不放，機器才會轉。
+        //
+        // 3.5 秒是**刻意比織布的 7 秒短的**。主動按著等，比放著不管難熬得多 ——
+        // 體感上按住 3.5 秒約等於放著等 7 秒。兩個都設 7 秒的話紡線會非常煩。
+        public const float SpinSeconds   = 3.5f;  // 按住多久紡完一份
+        public const float SpinHoldRange = 2.5f;  // 超過這個距離就中斷（＝ InteractRange）
+
         // ---------- 大動物（批 1）----------
         //
         // 核心規則只有一條：**牠永遠往「離最近的玩家最遠」的方向跑。**

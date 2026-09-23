@@ -8,11 +8,16 @@ using UnityEngine;
 namespace AlpacasOnFire.Machines
 {
     /// <summary>
-    /// 織布機：吃 1–2 份羊毛，織出「主色 + 點綴色」的衣服。
+    /// 織布機：吃 1–2 份**絲線**，織出「主色 + 點綴色」的衣服。
+    ///
+    /// 加了紡線機之後原料從羊毛換成絲線（素材箱 → 紡線機 → 織布機 → 交貨窗口）。
+    /// 換掉的只有「認哪一種 ItemKind」，主色／點綴色、放入順序有差、
+    /// 織製中可以補第二份，全部照舊 —— 底下的欄位仍然叫 WoolCount，
+    /// 是為了不動存檔與既有的 prefab 序列化欄位。
     ///
     /// **這台機器是一道限時決策，沒有開始鈕。**
     ///
-    ///     放入第一份毛（主色）
+    ///     放入第一份線（主色）
     ///        │  立刻開始織，目標 = 單色 4 秒
     ///        │
     ///        ├─ 4 秒內沒有第二份 ─────────→ 單色衣服
@@ -102,8 +107,13 @@ namespace AlpacasOnFire.Machines
             // 成品沒拿走之前，Space 一律解讀成取貨
             if (HasOutput) return ctx.IsEmptyHanded;
 
+            // 拿著生羊毛時要讓它進得來，不然 FindTarget 濾掉之後
+            // 「織布機只吃絲線」那句提示根本顯示不出來，玩家只看到機台沒反應。
+            // Interact() 會擋掉，所以按下去仍然什麼都不會發生。
+            if (ctx.HeldKind == ItemKind.Wool) return true;
+
             // 空手沒有別的意思 —— 沒有開始鈕
-            if (ctx.HeldKind != ItemKind.Wool) return false;
+            if (ctx.HeldKind != ItemKind.Thread) return false;
             return CanAcceptWool;
         }
 
@@ -114,18 +124,23 @@ namespace AlpacasOnFire.Machines
                     ? $"[Space] 取出 {DescribeOutput()}"
                     : "先空出雙手才能取出成品";
 
-            if (ctx.HeldKind == ItemKind.Wool)
+            if (ctx.HeldKind == ItemKind.Thread)
             {
                 if (WoolCount >= GameTuning.WeaveMaxWool)
                     return $"已經放滿 {GameTuning.WeaveMaxWool} 份了";
 
                 if (!Processing)
-                    return $"[Space] 放入{PlaceholderPalette.DyeName(ctx.Held.Spec.Color)}毛開始織（主色）";
+                    return $"[Space] 放入{PlaceholderPalette.DyeName(ctx.Held.Spec.Color)}線開始織（主色）";
 
                 // 織製中：告訴玩家還剩多少時間可以加第二份
                 float left = ProcessTimer.RemainingTime(Runner) ?? 0f;
-                return $"[Space] 加入{PlaceholderPalette.DyeName(ctx.Held.Spec.Color)}毛當點綴（剩 {left:F1} 秒）";
+                return $"[Space] 加入{PlaceholderPalette.DyeName(ctx.Held.Spec.Color)}線當點綴（剩 {left:F1} 秒）";
             }
+
+            // 拿著生羊毛過來的人要看得懂「還要先紡」，不然只會覺得機台壞了。
+            // **排在織布中之前** —— 這句話比「還剩幾秒」重要得多。
+            if (ctx.HeldKind == ItemKind.Wool)
+                return "織布機只吃絲線 —— 先拿去紡線機紡成線";
 
             if (Processing)
             {
@@ -135,7 +150,7 @@ namespace AlpacasOnFire.Machines
                     : $"織布中… 還有 {left:F1} 秒可以加點綴色";
             }
 
-            return "需要羊毛（第一份是主色、第二份是點綴色）";
+            return "需要絲線（第一份是主色、第二份是點綴色）";
         }
 
         public override void Interact(in InteractionContext ctx)
@@ -148,12 +163,12 @@ namespace AlpacasOnFire.Machines
                 return;
             }
 
-            if (ctx.HeldKind != ItemKind.Wool) return;
+            if (ctx.HeldKind != ItemKind.Thread) return;
             if (!CanAcceptWool) return;
 
             var colour = ctx.Held.Spec.Color;
             ctx.Player.Carry.ConsumeHeld();
-            ctx.Player.TriggerWork();   // 放入羊毛算「在工作」
+            ctx.Player.TriggerWork();   // 放入絲線算「在工作」
             InsertWool(colour);
         }
 
@@ -201,14 +216,14 @@ namespace AlpacasOnFire.Machines
             AccentColorRaw = 0;
         }
 
-        // ---------------- 被丟進來的羊毛 ----------------
+        // ---------------- 被丟進來的絲線 ----------------
 
         /// <summary>
         /// **跟其他機台不一樣：織製中也收。** 理由見 CanAcceptWool 的註解。
         /// 只改織布機，縫紉機與果汁機維持原本的 `!Processing && !HasOutput`。
         /// </summary>
         public bool CanAcceptThrown(CarriableItem item)
-            => item != null && item.Kind == ItemKind.Wool && CanAcceptWool;
+            => item != null && item.Kind == ItemKind.Thread && CanAcceptWool;
 
         public bool AcceptThrown(CarriableItem item)
         {

@@ -222,6 +222,23 @@ namespace AlpacasOnFire.Player
                     if (!chargeOnPrimary && pressed.IsSet(GameButton.Interact))
                         HandlePrimaryPress(in ctx);
 
+                    // ---- 按住左鍵：持續操作前面的機台（紡線機）----
+                    //
+                    // 跟上面的單擊是兩條平行的線，不是它的延伸 ——
+                    // 同一次按下會先觸發單擊（投料），然後每個 tick 繼續跑這裡（紡線）。
+                    //
+                    // **每個 tick 重新找目標，不記住上一個。**
+                    // 玩家走開或轉頭就自動斷掉，而進度留在機台上，
+                    // 不需要另外寫任何中斷處理。
+                    //
+                    // 手上的東西把左鍵拿去蓄力時（卡車）整個讓開，跟單擊分支一致。
+                    if (!chargeOnPrimary && input.Buttons.IsSet(GameButton.Interact))
+                    {
+                        var holdTarget = _interactor.FindTarget(out var holdCtx);
+                        if (holdTarget is IHoldInteractable hold && hold.CanHold(in holdCtx))
+                            hold.HoldTick(in holdCtx, Runner.DeltaTime);
+                    }
+
                     // ---- E：吐口水 ----
                     // 羊駝自帶的能力，不佔手、跟手上拿什麼無關。
                     // 借用 GameButton.DefaultTool 這個列舉值（原本是「拿出隨身剃毛器」，

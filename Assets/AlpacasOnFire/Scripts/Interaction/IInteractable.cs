@@ -78,6 +78,37 @@ namespace AlpacasOnFire.Interaction
     }
 
     /// <summary>
+    /// 「按住左鍵才會動」的機台（目前只有紡線機）。
+    ///
+    /// 跟單擊的 IInteractable 是**兩條平行的線**，不是它的延伸：
+    /// 同一個物件可以兩個都實作（紡線機就是 —— 單擊投料、按住紡線），
+    /// 而且兩邊的條件完全獨立。
+    ///
+    /// 分派規則（在 PlayerController 裡）：
+    ///  - **每個 tick 重新 FindTarget()**，不記住上一個目標。
+    ///    玩家走開、轉頭、被撞倒，下一個 tick 自然就找不到了 ——
+    ///    不需要任何「中斷」的程式碼，進度留在機台上就好。
+    ///  - 因為走的是 FindTarget()，**CanInteract 為 false 的物件根本進不了候選**。
+    ///    所以「正在紡、單擊沒事做」的狀態下 CanInteract 仍然要回 true，
+    ///    由 Interact() 自己什麼都不做。
+    ///  - 手上的東西把左鍵拿去蓄力時（卡車）整條線讓開，跟單擊分支一致。
+    ///
+    /// 唯讀性跟 IInteractable 相同：CanHold / GetHoldPrompt 任何端都會被呼叫（HUD 提示），
+    /// HoldTick 只在 StateAuthority 上呼叫。
+    /// </summary>
+    public interface IHoldInteractable
+    {
+        /// <summary>這個情境下按住有沒有意義（唯讀）。</summary>
+        bool CanHold(in InteractionContext ctx);
+
+        /// <summary>HUD 上的「按住」提示文字（唯讀）。回傳 null／空字串則不顯示。</summary>
+        string GetHoldPrompt(in InteractionContext ctx);
+
+        /// <summary>按住的每一個 tick。只會在 StateAuthority 上被呼叫。</summary>
+        void HoldTick(in InteractionContext ctx, float deltaTime);
+    }
+
+    /// <summary>
     /// 可以被穿上衣服的對象：人偶與隊友都實作它。
     /// 噴槍與飾品都只認這個介面，不管對方是人偶還是玩家。
     /// </summary>

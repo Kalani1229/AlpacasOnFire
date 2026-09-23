@@ -509,6 +509,39 @@ namespace AlpacasOnFire.EditorTools
 
                 return (typeof(TruckTool), new Renderer[] { body.GetComponent<Renderer>() });
             }, componentAlreadyAdded: true));
+
+            // ---- 生產鏈：絲線 ----
+            //
+            // 紡線機的產出、織布機唯一的原料。
+            //
+            // 外型做成**線軸**（細長圓柱 + 兩端擋片），跟羊毛的球體一眼分得出來 ——
+            // 這兩個東西會同時出現在同一個工作區、會被丟來丟去、會掉在地上，
+            // 分不出來的話玩家會一直往錯的機台送。
+            //
+            // 顏色沿用 PlaceholderPalette.Dye()：絲線繼承那份毛的顏色，
+            // 顏色在這條產線上是一路傳到成衣的。
+            AddItem(outItems, failures, "Item_Thread", () => Item(ItemKind.Thread, "Item_Thread", layer, root =>
+            {
+                var mat = Mat("M_Thread", PlaceholderPalette.Dye(DyeColorType.Red));
+                var flange = Mat("M_ThreadFlange", new Color(0.78f, 0.70f, 0.56f));   // 木質擋片
+
+                // 線身：躺著的細長圓柱（Cylinder 預設立著，轉 90 度讓它橫躺）
+                var spool = Prim(PrimitiveType.Cylinder, "Spool", root.transform, Vector3.zero,
+                                 new Vector3(0.13f, 0.2f, 0.13f), mat);
+                spool.transform.localRotation = Quaternion.Euler(90f, 0f, 0f);
+
+                // 兩端的擋片，讓它明確是「線軸」而不是一根棒子
+                for (int i = 0; i < 2; i++)
+                {
+                    var cap = Prim(PrimitiveType.Cylinder, $"Flange{i}", root.transform,
+                                   new Vector3(0f, 0f, i == 0 ? -0.2f : 0.2f),
+                                   new Vector3(0.2f, 0.02f, 0.2f), flange, keepCollider: false);
+                    cap.transform.localRotation = Quaternion.Euler(90f, 0f, 0f);
+                }
+
+                // 只有線身會被染色，擋片維持木色（不然整顆變成一坨純色，又跟羊毛難分了）
+                return (typeof(CarriableItem), new Renderer[] { spool.GetComponent<Renderer>() });
+            }));
         }
 
         private static GameCatalog.ItemEntry Item(ItemKind kind, string prefabName, int layer,

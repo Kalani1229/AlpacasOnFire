@@ -22,6 +22,10 @@ namespace AlpacasOnFire.Core
         Spit = 11,         // 已作廢 —— 見 PlayerController.TrySpit()
         Leek = 12,         // 大蔥：擊退 + 螢幕震一下，用來驅趕
         Truck = 13,        // 卡車：蓄力砸下去，暈眩倒地、身上的毛全部掉出來（單次）
+
+        // ---- 生產鏈（紡線機）----
+        // 生產鏈從兩段變三段：素材箱 -> 紡線機 -> 織布機 -> 交貨窗口。
+        Thread = 14,       // 絲線：紡線機的產出，織布機唯一的原料
     }
 
     public enum PatternType : byte
@@ -103,6 +107,10 @@ namespace AlpacasOnFire.Core
         // **不是 WoolNpc 的一種模式**，是獨立元件（WildBeast.cs），
         // 也刻意不進 WoolNpc.All —— 那份清單是顧客系統抽人用的。
         WildBeast = 28,
+
+        // 紡線機：第一台「人必須待在原地」的機器。
+        // 投料可以遠距（丟得進去），但要有人走過去按住左鍵才會轉。
+        SpinningMachine = 29,
     }
 
     /// <summary>

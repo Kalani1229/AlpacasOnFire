@@ -143,6 +143,7 @@ namespace AlpacasOnFire.Items
         public virtual float ThrowChargeSeconds => _kind switch
         {
             ItemKind.Wool        => GameTuning.ThrowChargeLight,
+            ItemKind.Thread      => GameTuning.ThrowChargeLight,
             ItemKind.DyeMaterial => GameTuning.ThrowChargeLight,
             ItemKind.Accessory   => GameTuning.ThrowChargeLight,
             ItemKind.HairTonic   => GameTuning.ThrowChargeLight,
@@ -290,6 +291,7 @@ namespace AlpacasOnFire.Items
                 ItemKind.DyeMaterial   => PlaceholderPalette.Dye(spec.Color),
                 ItemKind.DyeCanister   => PlaceholderPalette.Dye(spec.Color),
                 ItemKind.Wool          => PlaceholderPalette.Wool,
+                ItemKind.Thread        => PlaceholderPalette.Dye(spec.Color),
                 ItemKind.HairTonic     => PlaceholderPalette.HairTonic,
                 ItemKind.Accessory     => PlaceholderPalette.Accessory,
                 ItemKind.Box           => PlaceholderPalette.Box,
@@ -369,6 +371,7 @@ namespace AlpacasOnFire.Items
         public virtual string DisplayName => _kind switch
         {
             ItemKind.Wool        => "羊毛",
+            ItemKind.Thread      => PlaceholderPalette.DyeName(Spec.Color) + "絲線",
             ItemKind.DyeMaterial => PlaceholderPalette.DyeName(Spec.Color) + "染料",
             ItemKind.DyeCanister => PlaceholderPalette.DyeName(Spec.Color) + "顏料",
             ItemKind.Accessory   => PlaceholderPalette.AccessoryName(Spec.Accessory),

@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using AlpacasOnFire.Core;
+using AlpacasOnFire.Interaction;
 using AlpacasOnFire.Items;
 using AlpacasOnFire.Npc;
 using AlpacasOnFire.Orders;
@@ -441,7 +442,22 @@ namespace AlpacasOnFire.UI
             if (string.IsNullOrEmpty(prompt) && (held == null || !held.ChargesOnPrimary))
             {
                 var target = p.Interactor.FindTarget(out var ctx);
-                if (target != null) prompt = target.GetPrompt(in ctx);
+                if (target != null)
+                {
+                    prompt = target.GetPrompt(in ctx);
+
+                    // 按住的提示是**另外一行**，不是取代單擊那一行。
+                    // 紡線機兩件事可以同時成立（手上有毛可以投料、機器裡也有料可以紡），
+                    // 只顯示一個的話玩家會以為另一個不能做。
+                    if (target is IHoldInteractable hold && hold.CanHold(in ctx))
+                    {
+                        string holdPrompt = hold.GetHoldPrompt(in ctx);
+                        if (!string.IsNullOrEmpty(holdPrompt))
+                            prompt = string.IsNullOrEmpty(prompt)
+                                ? holdPrompt
+                                : prompt + "\n" + holdPrompt;
+                    }
+                }
             }
             _promptLabel.text = prompt ?? "";
 
