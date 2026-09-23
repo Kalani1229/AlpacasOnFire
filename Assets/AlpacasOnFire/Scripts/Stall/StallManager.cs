@@ -31,8 +31,14 @@ namespace AlpacasOnFire.Stall
 
         /// <summary>UI 用：狀態改變（新狀態）。</summary>
         public static event Action<StallState> OnStateChanged;
-        /// <summary>UI 用：本場結算（營業額, 成交筆數, 錯過筆數, 結算後的資本額）。</summary>
-        public static event Action<int, int, int, int> OnRoundSettled;
+        /// <summary>
+        /// UI 用：本場結算。
+        /// （營業額, 成交筆數, 錯過筆數, 結算後的資本額, 本輪門檻, 有沒有達標）
+        ///
+        /// target = 0 代表這一場沒有門檻（Stall_Test 的無限輪次模式），
+        /// 這時 passed 永遠是 true。
+        /// </summary>
+        public static event Action<int, int, int, int, int, bool> OnRoundSettled;
         /// <summary>UI 用：需要對玩家說一句話（放置失敗、開張條件不足……）。</summary>
         public static event Action<string> OnStallNotice;
 
@@ -40,6 +46,10 @@ namespace AlpacasOnFire.Stall
         [Tooltip("勾起來就用 v6 羊駝村的裝備組（織布機／交貨窗口／輸送帶 x2，手提箱兼料倉）。" +
                  "不勾就是 Classic —— 舊場景不要動這一格。")]
         [SerializeField] private bool _villageLoadout = false;
+
+        [Tooltip("勾起來就啟用 run 循環：每輪有營收門檻，沒達標這一局就結束。" +
+                 "**Stall_Test 不要勾** —— 不勾的話結算行為跟以前完全一樣，可以無限輪次玩下去。")]
+        [SerializeField] private bool _runMode = false;
 
         [Header("Suitcase")]
         [Tooltip("開場時要不要自動生成一個手提箱給隊伍。測試場景會開啟。")]
@@ -79,6 +89,40 @@ namespace AlpacasOnFire.Stall
         [Networked] public int RoundDeliveries { get; set; }
         [Networked] public int RoundMissed { get; set; }
         [Networked] public int RoundRevenue { get; set; }
+
+        // ---------------- run 循環 ----------------
+        //
+        // RoundRevenue 與 Capital 是兩件事，不要混：
+        //   RoundRevenue  本輪營收，用來比對門檻，每輪歸零
+        //   Capital       累積資本，只進不出，之後給升級用
+
+        /// <summary>目前是第幾輪，從 1 開始。</summary>
+        [Networked] public int CurrentRound { get; set; }
+
+        /// <summary>本輪的營收門檻，開張時寫入。**0 代表沒有門檻**（非 run 模式）。</summary>
+        [Networked] public int RoundTarget { get; set; }
+
+        /// <summary>這一局賣出過最貴的一件衣服，結算畫面要秀。</summary>
+        [Networked] public GarmentSpec BestSale { get; set; }
+        [Networked] public int BestSalePrice { get; set; }
+
+        /// <summary>這一場有沒有 run 循環（每輪門檻）。給 HUD 判斷要不要顯示目標。</summary>
+        public bool RunMode => _runMode;
+
+        /// <summary>營業中的即時營收。營業中讀 LevelDirector，結算後讀定格的 RoundRevenue。</summary>
+        public int CurrentRevenue
+        {
+            get
+            {
+                if (State != StallState.Open) return RoundRevenue;
+                var director = LevelDirector.Instance;
+                return director != null ? director.Money : 0;
+            }
+        }
+
+        /// <summary>本輪離門檻還差多少（達標後是 0）。</summary>
+        public int RoundRemaining =>
+            RoundTarget <= 0 ? 0 : Mathf.Max(0, RoundTarget - CurrentRevenue);
 
         private StallMatVisual _matVisual;
         private StallState _lastRenderedState = (StallState)255;
@@ -132,6 +176,12 @@ namespace AlpacasOnFire.Stall
                 Capital = GameTuning.StallStartingCapital;
                 RoundsCompleted = 0;
 
+                // run 循環：從第 1 輪開始。門檻要等開張才寫（見 OpenForBusiness）。
+                CurrentRound = 1;
+                RoundTarget = 0;
+                BestSale = default;
+                BestSalePrice = 0;
+
                 // 手提箱刻意不在 Spawned() 裡生成，改成第一個 tick 才生。
                 // 場景物件的 Spawned() 發生在 Runner 還在註冊場景物件的階段，
                 // 這時候呼叫 Runner.Spawn() 是不保險的做法。
@@ -162,6 +212,22 @@ namespace AlpacasOnFire.Stall
         {
             if (!HasStateAuthority || State != StallState.Open) return;
             if (success) RoundDeliveries++;
+        }
+
+        /// <summary>
+        /// 記一筆成交，用來追蹤「這一局最貴的一件」。
+        ///
+        /// 走一支專用的方法而不是掛在 OnDeliveryResult 上，是因為那個事件只帶
+        /// 一句描述字串，拿不到 GarmentSpec 與價格 —— 結算畫面要的正是那兩樣。
+        /// 由 CustomerQueue.TryDeliver() 在成交時呼叫。只在 StateAuthority。
+        /// </summary>
+        public void RecordSale(GarmentSpec spec, int price)
+        {
+            if (!HasStateAuthority) return;
+            if (price <= BestSalePrice) return;
+
+            BestSale = spec;
+            BestSalePrice = price;
         }
 
         // ---------------- 模擬 ----------------
@@ -822,6 +888,10 @@ namespace AlpacasOnFire.Stall
             RoundMissed = 0;
             RoundRevenue = 0;
 
+            // run 模式才有門檻。0 代表「沒有門檻」，後面的達標判定一律放行 ——
+            // 這就是 Stall_Test 能繼續無限輪次玩下去的原因。
+            RoundTarget = _runMode ? GameTuning.StallTargetFor(CurrentRound) : 0;
+
             // v6：每個素材箱從背包把自己那個顏色的存量整批裝滿，此後鎖定
             if (StallCatalog.Active.SuitcaseIsStash)
             {
@@ -844,16 +914,29 @@ namespace AlpacasOnFire.Stall
             int revenue = director != null ? director.Money : 0;
 
             RoundRevenue = revenue;
+
+            // **沒達標也照樣入帳。** 賺到的錢是真的賺到了，結算畫面才能誠實地
+            // 顯示「你差了多少」—— 把錢沒收會讓那個數字變得沒有意義。
             Capital += revenue;
             RoundsCompleted++;
 
+            // 沒有門檻（RoundTarget = 0 / 非 run 模式）就一律算過。
+            bool passed = !_runMode || revenue >= RoundTarget;
+            if (passed) CurrentRound++;
+
             OrderBoard.Instance?.ClearAllOrders();
-            SetState(StallState.Settling);
+            SetState(passed ? StallState.Settling : StallState.RunOver);
             GameAudio.PlayAt(SfxId.BusinessClose, MatCenter);
-            RPC_RoundSettled(revenue, RoundDeliveries, RoundMissed, Capital);
+            RPC_RoundSettled(revenue, RoundDeliveries, RoundMissed, Capital, RoundTarget, passed);
         }
 
-        /// <summary>結算畫面關掉之後回到 Exploring（攤位還在地上，可以繼續搬或收攤）。</summary>
+        /// <summary>
+        /// 結算畫面關掉之後回到 Exploring（攤位還在地上，可以繼續搬或收攤）。
+        ///
+        /// **RunOver 時什麼都不做** —— 那個 State 檢查就是擋這件事的：
+        /// 這一局已經結束了，關掉結算畫面不該讓人若無其事地回去繼續擺攤。
+        /// 想再來一次目前要重開場景（重開選單留給下一批）。
+        /// </summary>
         public void DismissSettlement()
         {
             if (!HasStateAuthority) return;
@@ -886,9 +969,10 @@ namespace AlpacasOnFire.Stall
         }
 
         [Rpc(RpcSources.StateAuthority, RpcTargets.All)]
-        private void RPC_RoundSettled(int revenue, int deliveries, int missed, int capital)
+        private void RPC_RoundSettled(int revenue, int deliveries, int missed, int capital,
+                                      int target, NetworkBool passed)
         {
-            OnRoundSettled?.Invoke(revenue, deliveries, missed, capital);
+            OnRoundSettled?.Invoke(revenue, deliveries, missed, capital, target, passed);
         }
 
         /// <summary>給本機呼叫的提示（不需要走網路的那種）。</summary>

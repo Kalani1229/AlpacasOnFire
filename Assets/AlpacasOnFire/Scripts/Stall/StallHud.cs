@@ -20,6 +20,7 @@ namespace AlpacasOnFire.Stall
     {
         private Text _modeLabel;
         private Text _capitalLabel;
+        private Text _targetLabel;
         private Text _noticeLabel;
         private Image _modeChip;
 
@@ -55,6 +56,13 @@ namespace AlpacasOnFire.Stall
                 new Color(0.98f, 0.85f, 0.35f),
                 new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(0f, 1f),
                 new Vector2(26f, -76f), new Vector2(420f, 30f));
+
+            // run 循環的目標進度。**這是整個機制唯一的壓力來源，看不到就等於不存在**，
+            // 所以放在資本額正下方、營業中一直亮著。
+            _targetLabel = UIFactory.Label("RoundTarget", transform, "", 24, TextAnchor.UpperLeft,
+                new Color(0.95f, 0.85f, 0.55f),
+                new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(0f, 1f),
+                new Vector2(26f, -108f), new Vector2(620f, 32f));
 
             _noticeLabel = UIFactory.Label("StallNotice", transform, "", 28, TextAnchor.MiddleCenter,
                 new Color(1f, 0.55f, 0.4f),
@@ -102,6 +110,7 @@ namespace AlpacasOnFire.Stall
             {
                 if (_modeChip != null) _modeChip.gameObject.SetActive(false);
                 if (_capitalLabel != null) _capitalLabel.text = "";
+                if (_targetLabel != null) _targetLabel.text = "";
                 if (_openHintLabel != null) _openHintLabel.text = "";
                 return;
             }
@@ -116,8 +125,46 @@ namespace AlpacasOnFire.Stall
                 ? $"資本額 ${stall.Capital}　｜　攤位裝備 {stall.DeployedCount()} 台"
                 : $"資本額 ${stall.Capital}";
 
+            UpdateRoundTarget(stall);
             UpdateOpenHint(stall);
             UpdateNotice();
+        }
+
+        /// <summary>
+        /// 營業中的目標進度：第幾輪、目標多少、已經賺了多少、還差多少。
+        ///
+        /// **達標的瞬間變綠並改寫成「已達標！」。** 這個回饋很重要 ——
+        /// 它把後半輪從「還在焦慮」翻成「多賺多賺」，是同一段時間裡兩種完全不同的心情。
+        ///
+        /// 只在 run 模式且營業中顯示：Stall_Test 沒有門檻，多一行數字只會干擾。
+        /// </summary>
+        private void UpdateRoundTarget(StallManager stall)
+        {
+            if (_targetLabel == null) return;
+
+            if (!stall.RunMode || stall.State != StallState.Open || stall.RoundTarget <= 0)
+            {
+                _targetLabel.text = "";
+                return;
+            }
+
+            int earned = stall.CurrentRevenue;
+            int target = stall.RoundTarget;
+
+            if (earned >= target)
+            {
+                _targetLabel.text = $"第 {stall.CurrentRound} 輪　目標 {target}　已賺 {earned}　已達標！";
+                _targetLabel.color = new Color(0.45f, 0.95f, 0.5f);
+                return;
+            }
+
+            _targetLabel.text = $"第 {stall.CurrentRound} 輪　目標 {target}　已賺 {earned}　還差 {target - earned}";
+
+            // 進度過 75% 轉暖色 —— 快要來不及的時候要看得出來
+            float progress = earned / (float)target;
+            _targetLabel.color = progress >= 0.75f
+                ? new Color(0.98f, 0.9f, 0.45f)
+                : new Color(0.95f, 0.85f, 0.55f);
         }
 
         /// <summary>
@@ -172,6 +219,7 @@ namespace AlpacasOnFire.Stall
             {
                 StallState.Open     => ("營業中", new Color(0.10f, 0.30f, 0.45f, 0.9f)),
                 StallState.Settling => ("結算中", new Color(0.25f, 0.20f, 0.35f, 0.9f)),
+                StallState.RunOver  => ("這一局結束", new Color(0.42f, 0.14f, 0.16f, 0.92f)),
                 _ when stall.IsArrangeMode => ("佈置模式", new Color(0.40f, 0.28f, 0.08f, 0.9f)),
                 _                   => ("探索中", new Color(0.12f, 0.13f, 0.16f, 0.85f)),
             };

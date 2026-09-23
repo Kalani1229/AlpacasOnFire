@@ -234,6 +234,12 @@ namespace AlpacasOnFire.EditorTools
             {
                 SetBool(stall, "_villageLoadout", true);
                 BuildReport.Line("  StallManager 切換成 Village loadout（織布機／交貨窗口／輸送帶 x2）");
+
+                // run 循環只在羊駝村生效。Stall_Test 的 StallManager 不會被碰到，
+                // 那邊維持 _runMode = false，可以無限輪次玩下去。
+                SetBool(stall, "_runMode", true);
+                BuildReport.Line($"  StallManager 啟用 run 循環（第 1 輪門檻 " +
+                                 $"{GameTuning.StallTargetFor(1)}，每輪 x{GameTuning.StallTargetGrowth}）");
             }
             else
             {
@@ -390,6 +396,10 @@ namespace AlpacasOnFire.EditorTools
                 var p = so.FindProperty("_villageLoadout");
                 if (p == null || !p.boolValue)
                     problems.Add("StallManager 沒有勾 Village loadout —— 開箱會彈出縫紉機／果汁機／人偶");
+
+                var runP = so.FindProperty("_runMode");
+                if (runP == null || !runP.boolValue)
+                    problems.Add("StallManager 沒有勾 Run mode —— 每輪不會有營收門檻，run 永遠不會結束");
             }
 
             var director = Object.FindFirstObjectByType<LevelDirector>();

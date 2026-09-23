@@ -393,6 +393,26 @@ namespace AlpacasOnFire.Core
             return 0;
         }
 
+        // ---------- run 循環（v6）----------
+        //
+        // 每輪有營收門檻，沒達標 run 就結束。門檻逐輪上升，所以一定會有撐不住的那一輪 ——
+        // 「這一局能走多遠」取代了「無限輪次」。
+        //
+        //   輪次    1    2    3    4    5    6     7
+        //   門檻  120  174  252  366  530  769  1115
+        //
+        // 一件衣服值 20–90（主色 + 點綴色），3 分鐘大概做得完 5–10 件，
+        // 所以一輪的合理營收是 150–600 —— 第 6、7 輪會超過物理產能，
+        // 一個 run 落在 30–45 分鐘。
+        //
+        // **這兩個數字一定會再調**，所以留成常數、曲線用算的，不要寫死成表。
+        public const int   StallTargetBase   = 120;   // 第 1 輪的門檻
+        public const float StallTargetGrowth = 1.45f; // 每輪乘這個倍率
+
+        /// <summary>第 round 輪（從 1 開始）的營收門檻。</summary>
+        public static int StallTargetFor(int round)
+            => Mathf.RoundToInt(StallTargetBase * Mathf.Pow(StallTargetGrowth, Mathf.Max(0, round - 1)));
+
         // ---------- 大動物（批 1）----------
         //
         // 核心規則只有一條：**牠永遠往「離最近的玩家最遠」的方向跑。**

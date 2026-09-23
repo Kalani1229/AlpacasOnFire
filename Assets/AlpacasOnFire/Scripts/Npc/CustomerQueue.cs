@@ -356,6 +356,10 @@ namespace AlpacasOnFire.Npc
             int price = customer.Price;
             customer.Leave(served: true);
 
+            // 追蹤「這一局最貴的一件」給結算畫面用。
+            // 走這裡而不是 OnDeliveryResult，因為那個事件只帶描述字串、拿不到價格。
+            StallManager.Instance?.RecordSale(spec, price);
+
             LevelDirector.Instance?.AddMoney(price, $"賣出 {spec.Describe()}");
             RPC_Result(true, spec.Describe(), price);
             return true;

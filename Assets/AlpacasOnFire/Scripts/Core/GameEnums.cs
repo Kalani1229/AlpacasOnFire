@@ -119,6 +119,9 @@ namespace AlpacasOnFire.Core
         Deploying = 1, // 佈置中：襯布已展開，可擺放機台，沒有計時
         Open      = 2, // 營業中：計時進行，機台不能移動
         Settling  = 3, // 結算中：跳出本場結算
+
+        // 一律往後加，不重排。
+        RunOver   = 4, // 沒達標，這一局結束（只有 run 模式會進到這裡）
     }
 
     /// <summary>
