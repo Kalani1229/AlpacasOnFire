@@ -172,14 +172,14 @@ namespace AlpacasOnFire.EditorTools
         /// <summary>
         /// 模型的縮放與位移。
         ///
-        /// **這兩個值要人眼校過再填回來** —— FBX 的原始大小不會剛好等於
+        /// **這兩個值是人眼校出來的** —— FBX 的原始大小不會剛好等於
         /// GameTuning.AlpacaHeight（1.8）。校的方法是把膠囊版與模型版擺在一起，
-        /// 調到「頭頂差不多齊」為止。
+        /// 調到「頭頂差不多齊」為止。0.5 是目視校正的結果（原尺寸大約是兩倍大）。
         ///
         /// 硬寫在這裡而不是留在 prefab 上，是因為每次跑「建置佔位資產」都會重建 prefab，
         /// 在 Inspector 調的值下一次就被蓋掉了。
         /// </summary>
-        private const float AlpacaModelScale = 1.0f;
+        private const float AlpacaModelScale = 0.5f;
         private static readonly Vector3 AlpacaModelOffset = Vector3.zero;
 
         /// <summary>
