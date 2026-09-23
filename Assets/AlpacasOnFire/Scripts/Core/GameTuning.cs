@@ -312,8 +312,17 @@ namespace AlpacasOnFire.Core
         /// <summary>爆炸動畫演多久，演完卡車就消失。</summary>
         public const float TruckBlastSeconds    = 0.45f;
 
-        /// <summary>卡車：砸中之後失控多久。**刻意很短**，見上面的註解。</summary>
-        public const float TruckStaggerSeconds  = 1.1f;
+        /// <summary>
+        /// 卡車：砸中之後失控多久。
+        ///
+        /// 原本是 1.1 秒（「失控要短」）。加了 ragdoll 之後調成 4 秒 ——
+        /// 1.1 秒塞不下「癱軟 -> 掙扎 -> 站回」三段，站起來那段只剩 0.3 秒左右，
+        /// 而笑點正好在站起來那一段。**代價是被砸中的人真的會有 4 秒不能動。**
+        ///
+        /// ragdoll 的總長度跟著這個值走（讀的是同步的 StaggerTimer），
+        /// 所以「看起來爬起來了」和「可以動了」永遠是同一刻。
+        /// </summary>
+        public const float TruckStaggerSeconds  = 4f;
 
         /// <summary>卡車：砸中時附帶的擊退（比大蔥弱，主要的效果是倒地）。</summary>
         public const float TruckKnockbackSpeed  = 4f;
@@ -468,5 +477,64 @@ namespace AlpacasOnFire.Core
         /// 有正式地形（有牆）之後這條就只是多一層保險。
         /// </summary>
         public const float BeastGroundProbe      = 4f;
+
+        // ---------- 倒地 ragdoll（純視覺）----------
+        //
+        // **這一整塊都是本機視覺，不進網路狀態。** Unity 的 PhysX 跨機器不是決定性的，
+        // 而 Fusion 會重模擬過去的 tick —— 十幾個關節每重跑一次就多一點誤差，
+        // 幾秒內各端就會各自飛走。所以 ragdoll 全部跑在 Render()，各端自己演自己的。
+        //
+        // 笑點在爬起來，不在倒下。倒下只有半秒，爬起來那一段才是所有梗的來源，
+        // 所以 spring 不是線性回升，而是「癱軟 -> 掙扎 -> 站回」三段。
+        //
+        // **這些是出廠值，執行時讀的是 RagdollProfile 資產上的同名欄位。**
+        // 手感一定要邊看邊調，常數每改一次都要重新編譯，所以實際調整請到
+        // Assets/AlpacasOnFire/Resources/RagdollProfile —— Play 中改，下一次倒地就生效。
+        // 改這裡只會影響「新建立的」profile。
+        public const float RagdollLimpSeconds    = 0.5f;   // 完全癱軟，spring = 0
+        public const float RagdollStruggleSpring = 0.6f;   // 掙扎階段的力道比例（撐得起來但撐不直）
+        public const float RagdollBlendBackTime  = 0.35f;  // 可見骨架從 ragdoll 姿勢混回動畫姿勢
+        public const float RagdollMaxSpring      = 3000f;  // 站直時的 slerpDrive.positionSpring
+        public const float RagdollMaxForce       = 1000f;  // slerpDrive.maximumForce
+        public const float RagdollLeashRadius    = 1.5f;   // 骨盆離膠囊最遠多少
+
+        /// <summary>
+        /// 三個階段在整段倒地時間裡的分配。
+        ///
+        /// **為什麼不是直接寫死 0.5 / 1.5 這兩個絕對秒數**（原規格是那樣寫的）：
+        /// 寫這段時 `TruckStaggerSeconds` 是 **1.1 秒**（現在已調成 4 秒），比規格假設的長度短。
+        /// 照絕對秒數實作的話，掙扎階段還沒跑完玩家就已經可以動了 ——
+        /// 也就是「站回」那一段根本不會出現，而那一段正是笑點收尾的地方。
+        ///
+        /// 所以改成：癱軟取絕對值（但不超過整段的 LimpMaxShare），
+        /// 剩下的時間再照固定比例切成掙扎與站回。這樣無論倒地多久，
+        /// 三段的形狀都在，而且**結束的那一刻永遠等於可以操作的那一刻**。
+        ///
+        /// 之後把 TruckStaggerSeconds 調長到 2 秒左右，這裡不用改就會自動接近原規格。
+        /// </summary>
+        public const float RagdollLimpMaxShare     = 0.40f; // 癱軟最多佔整段的四成
+        public const float RagdollStruggleShare    = 0.55f; // 癱軟之後，掙扎佔剩餘的比例
+
+        /// <summary>
+        /// 把骨盆扶正的彈簧（單位 1/s²，跟質量無關）。
+        ///
+        /// 關節的 spring 只能把四肢伸直，**沒有東西會讓整隻翻回正面** ——
+        /// 少了這股力，恢復階段會是「腿伸直了、身體還側躺著」。
+        ///
+        /// 掙扎階段乘 0.6 之後，骨盆會被重力往下拉 g / k ≈ 0.2 公尺，
+        /// 那個下垂就是「想站起來但撐不直」。調大 = 站得更快更挺；調小 = 掙扎更久。
+        /// </summary>
+        public const float RagdollHipsSpring       = 80f;
+
+        /// <summary>
+        /// 倒地時鏡頭要不要跟著側翻（StaggerCameraPitch / Roll 那組）。
+        ///
+        /// 有 ragdoll 之後先關掉：身體已經在倒了，鏡頭再刻意翻一次會搶戲，
+        /// 而且第三人稱下會看不清楚自己是怎麼摔的。那組角度與速度的數值原封不動，
+        /// 改回 true 就恢復原本的效果。
+        /// </summary>
+        // static readonly 而不是 const：const false 會讓編譯器把後面的程式碼判成
+        // 「永遠跑不到」並吼一排 CS0162 警告
+        public static readonly bool StaggerCameraTilt = false;
     }
 }

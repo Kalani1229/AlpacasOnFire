@@ -23,6 +23,12 @@ namespace AlpacasOnFire.EditorTools
         public const string PlayerLayer = "Player";
         public const string ItemLayer   = "CarriedItem";
 
+        /// <summary>
+        /// Ragdoll 骨頭專用的 layer。名稱由 `RagdollRig` 持有 ——
+        /// 執行期要靠它查 layer 索引，兩邊寫死同一個字串會在改名時無聲分家。
+        /// </summary>
+        public const string RagdollLayer = RagdollRig.LayerName;
+
         [MenuItem("羊駝很忙/1. 建置佔位資產（材質 + Prefab + Catalog）", priority = 0)]
         public static void BuildAll()
         {
@@ -37,6 +43,11 @@ namespace AlpacasOnFire.EditorTools
             ResetCaches();
             int playerLayer = EnsureLayer(PlayerLayer);
             int itemLayer = EnsureLayer(ItemLayer);
+
+            // Ragdoll 的骨頭要有自己的層，不然倒在地上的十幾顆膠囊會去撞物品、
+            // 撞其他玩家，也會被 PlayerInteractor 的 SphereCast 掃到。
+            // 這裡只負責把層建出來；哪些層互相忽略是 RagdollRig 在執行期設的。
+            EnsureLayer(RagdollLayer);
 
             var items = new List<GameCatalog.ItemEntry>();
             var elements = new List<GameCatalog.ElementEntry>();
@@ -306,6 +317,8 @@ namespace AlpacasOnFire.EditorTools
             // 膠囊版沒有 Animator，這支會自己靜默，不會吼錯誤。
             root.AddComponent<PlayerAnimator>();
 
+            AttachRagdoll(root);
+
             SetRef(pc, "_handAnchor", hand.transform);
             SetRef(pc, "_headAnchor", head.transform);
             SetRef(pc, "_catchAnchor", catchA.transform);
@@ -324,6 +337,47 @@ namespace AlpacasOnFire.EditorTools
 
             SetLayerRecursive(root, layer);
             return SavePrefab(root, "Alpaca_Player");
+        }
+
+        /// <summary>
+        /// 掛上倒地 ragdoll。
+        ///
+        /// **三種情況都要能過**：
+        ///  1. 有模型 + 有調好的 RagdollProfile  -> 正常掛上
+        ///  2. 有模型、還沒跑過「掃描羊駝骨架」  -> 掛上但 profile 是空的，
+        ///     `RagdollRig.Ready` 會是 false，自動退回舊的整隻傾倒表現
+        ///  3. 沒有美術模型（膠囊佔位版）        -> 完全不掛，連警告都不吼
+        ///
+        /// 第 2 種情況**不該是錯誤**：clone 下來第一次跑建置的人不會先去跑掃描，
+        /// 他應該拿到一個能動的角色，加上一行「想要 ragdoll 就去跑那個選單」。
+        ///
+        /// 注意這裡只接 profile 與 Animator，**骨頭是執行期照名稱找的**。
+        /// 不在這裡把 Transform 指進去，是因為 prefab 每次建置都會重建，
+        /// 指向內部節點的參考留不住 —— 名稱留得住。
+        /// </summary>
+        private static void AttachRagdoll(GameObject root)
+        {
+            var visual = root.transform.Find("Visual");
+            if (visual == null) return;   // 膠囊版：沒有骨架，安靜跳過
+
+            var rig = root.AddComponent<RagdollRig>();
+            SetRef(rig, "_animator", visual.GetComponent<Animator>());
+
+            var armature = visual.Find("Armature");
+            SetRef(rig, "_skeletonRoot", armature != null ? armature : visual);
+
+            var profile = AssetDatabase.LoadAssetAtPath<RagdollProfile>(
+                "Assets/AlpacasOnFire/Resources/RagdollProfile.asset");
+
+            if (profile == null)
+            {
+                BuildReport.Line("  沒有 RagdollProfile —— 倒地維持舊的整隻傾倒。" +
+                                 "想要 ragdoll 請跑「羊駝很忙 > Ragdoll > 1. 掃描羊駝骨架」。");
+                return;
+            }
+
+            SetRef(rig, "_profile", profile);
+            BuildReport.Line($"  倒地 ragdoll 已接上 RagdollProfile（{profile.bones.Length} 根骨頭）");
         }
 
         // ---------------------------------------------------------------- 物品

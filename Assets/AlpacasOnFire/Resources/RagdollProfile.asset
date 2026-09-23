@@ -1,0 +1,150 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: b3420d34c4c5f4f809113c49779b32ea, type: 3}
+  m_Name: RagdollProfile
+  m_EditorClassIdentifier: Assembly-CSharp::AlpacasOnFire.Player.RagdollProfile
+  unitsVersion: 2
+  rootBoneName: spine.001
+  rootMass: 4
+  rootRadius: 0.2
+  rootLength: 0
+  limpSeconds: 0.5
+  limpMaxShare: 0.4
+  struggleShare: 0.55
+  blendBackTime: 0.35
+  struggleSpring: 0.6
+  maxSpring: 3000
+  maxForce: 1000
+  hipsSpring: 80
+  leashRadius: 1.5
+  kickUp: 1.2
+  bones:
+  - boneName: spine.002
+    enabled: 1
+    mass: 2.5
+    radius: 0.2
+    length: 0
+    jointAxis: {x: 1, y: 0, z: 0}
+    limitLow: -25
+    limitHigh: 25
+    swingLimit: 20
+    springScale: 1.2
+  - boneName: headBase
+    enabled: 1
+    mass: 1.2
+    radius: 0.08
+    length: 0
+    jointAxis: {x: 1, y: 0, z: 0}
+    limitLow: -45
+    limitHigh: 45
+    swingLimit: 35
+    springScale: 0.8
+  - boneName: headTop
+    enabled: 1
+    mass: 1
+    radius: 0.11
+    length: 0.3
+    jointAxis: {x: 1, y: 0, z: 0}
+    limitLow: -35
+    limitHigh: 35
+    swingLimit: 25
+    springScale: 0.8
+  - boneName: tail
+    enabled: 1
+    mass: 0.3
+    radius: 0.05
+    length: 0.2
+    jointAxis: {x: 1, y: 0, z: 0}
+    limitLow: -60
+    limitHigh: 60
+    swingLimit: 45
+    springScale: 0.4
+  - boneName: frontLeg.L
+    enabled: 1
+    mass: 0.8
+    radius: 0.07
+    length: 0
+    jointAxis: {x: 1, y: 0, z: 0}
+    limitLow: -60
+    limitHigh: 60
+    swingLimit: 20
+    springScale: 1
+  - boneName: frontLeg.L.001
+    enabled: 1
+    mass: 0.5
+    radius: 0.055
+    length: 0
+    jointAxis: {x: 1, y: 0, z: 0}
+    limitLow: -80
+    limitHigh: 5
+    swingLimit: 10
+    springScale: 1
+  - boneName: frontLeg.R
+    enabled: 1
+    mass: 0.8
+    radius: 0.07
+    length: 0
+    jointAxis: {x: 1, y: 0, z: 0}
+    limitLow: -60
+    limitHigh: 60
+    swingLimit: 20
+    springScale: 1
+  - boneName: frontLeg.R.001
+    enabled: 1
+    mass: 0.5
+    radius: 0.055
+    length: 0
+    jointAxis: {x: 1, y: 0, z: 0}
+    limitLow: -80
+    limitHigh: 5
+    swingLimit: 10
+    springScale: 1
+  - boneName: backLeg.L
+    enabled: 1
+    mass: 0.9
+    radius: 0.07
+    length: 0
+    jointAxis: {x: 1, y: 0, z: 0}
+    limitLow: -60
+    limitHigh: 60
+    swingLimit: 20
+    springScale: 1
+  - boneName: backLeg.L.001
+    enabled: 1
+    mass: 0.5
+    radius: 0.055
+    length: 0
+    jointAxis: {x: 1, y: 0, z: 0}
+    limitLow: -5
+    limitHigh: 80
+    swingLimit: 10
+    springScale: 1
+  - boneName: backLeg.R
+    enabled: 1
+    mass: 0.9
+    radius: 0.07
+    length: 0
+    jointAxis: {x: 1, y: 0, z: 0}
+    limitLow: -60
+    limitHigh: 60
+    swingLimit: 20
+    springScale: 1
+  - boneName: backLeg.R.001
+    enabled: 1
+    mass: 0.5
+    radius: 0.055
+    length: 0
+    jointAxis: {x: 1, y: 0, z: 0}
+    limitLow: -5
+    limitHigh: 80
+    swingLimit: 10
+    springScale: 1

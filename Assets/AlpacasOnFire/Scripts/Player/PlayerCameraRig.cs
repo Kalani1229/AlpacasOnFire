@@ -54,8 +54,13 @@ namespace AlpacasOnFire.Player
                 go.AddComponent<AudioListener>();
             }
             if (_camera != null) _camera.gameObject.tag = "MainCamera";
-            // 只排除玩家與可攜帶物件所在的 layer（由場景建置工具設定），其餘都會擋鏡頭
-            _collisionMask = ~LayerMask.GetMask("Ignore Raycast", "Player", "CarriedItem");
+            // 只排除玩家與可攜帶物件所在的 layer（由場景建置工具設定），其餘都會擋鏡頭。
+            //
+            // Ragdoll 也要排除：骨頭上的碰撞膠囊就在角色身體裡，鏡頭的 SphereCast
+            // 是從胸口往後打的，不排除的話一出發就撞到自己的骨頭，
+            // 鏡頭會被拉到最近距離貼在羊駝身上（看起來像羊駝變得超大）。
+            _collisionMask = ~LayerMask.GetMask("Ignore Raycast", "Player", "CarriedItem",
+                                                RagdollRig.LayerName);
         }
 
         private void OnDestroy()
@@ -175,6 +180,14 @@ namespace AlpacasOnFire.Player
         /// </summary>
         private Quaternion UpdateStaggerTilt(PlayerController player)
         {
+            // 暫時關掉：身體已經有 ragdoll 在倒了，鏡頭再刻意側翻會搶戲，
+            // 也看不清楚自己是怎麼摔的。要恢復就把 GameTuning.StaggerCameraTilt 改回 true。
+            if (!GameTuning.StaggerCameraTilt)
+            {
+                _staggerTilt = 0f;
+                return Quaternion.identity;
+            }
+
             bool down = player != null && player.Object != null && player.Object.IsValid
                         && player.IsStaggered;
 

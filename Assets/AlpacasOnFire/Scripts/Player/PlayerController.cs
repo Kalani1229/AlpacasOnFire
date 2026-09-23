@@ -91,6 +91,10 @@ namespace AlpacasOnFire.Player
         private PlayerInteractor _interactor;
         private PlayerStallAgent _stallAgent;
         private StaggerStatus _stagger;
+
+        /// <summary>倒地 ragdoll。舊 prefab（膠囊版）上沒有，允許 null。</summary>
+        private RagdollRig _ragdoll;
+
         private MaterialPropertyBlock _mpb;
         private PlayerCameraRig _rig;
 
@@ -112,6 +116,7 @@ namespace AlpacasOnFire.Player
             _carry = GetComponent<PlayerCarry>();
             _stallAgent = GetComponent<PlayerStallAgent>();   // 舊 prefab 上可能沒有，允許 null
             _stagger = GetComponent<StaggerStatus>();         // 同上
+            _ragdoll = GetComponent<RagdollRig>();            // 同上（膠囊版沒有骨架）
             CacheFadeRenderers();
             _interactor = new PlayerInteractor(this);
             if (!All.Contains(this)) All.Add(this);
@@ -603,6 +608,12 @@ namespace AlpacasOnFire.Player
         /// </summary>
         private void RenderStagger()
         {
+            // 有 ragdoll 的時候整段讓開。
+            // 這支是把**整個 Renderer 的 transform** 轉 82 度，而 ragdoll 是逐骨頭驅動 ——
+            // 兩個同時作用的話，一個在轉容器、一個在轉裡面的骨頭，看起來會是
+            // 「羊駝一邊軟掉一邊被人整隻扳倒」。膠囊佔位版沒有骨架，維持原本的傾倒。
+            if (_ragdoll != null && _ragdoll.Ready) return;
+
             if (_bodyRenderer == null) return;
 
             var body = _bodyRenderer.transform;

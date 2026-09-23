@@ -320,6 +320,7 @@ GameObject:
   - component: {fileID: 3675540222754563227}
   - component: {fileID: 1635011383745026146}
   - component: {fileID: 5936140407334104211}
+  - component: {fileID: 8948016041488325232}
   m_Layer: 8
   m_Name: Alpaca_Player
   m_TagString: Untagged
@@ -537,6 +538,21 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::AlpacasOnFire.Player.PlayerAnimator
   _animator: {fileID: 0}
+--- !u!114 &8948016041488325232
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 7137730909891967934}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: c5ee0c36ae23d43af917b9c587b16f41, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::AlpacasOnFire.Player.RagdollRig
+  _profile: {fileID: 11400000, guid: e917da2de0b484a779d2078e31bb866a, type: 2}
+  _animator: {fileID: 7190924062873498681}
+  _skeletonRoot: {fileID: 3597273089282845659}
 --- !u!1 &7738960977332561580
 GameObject:
   m_ObjectHideFlags: 0
@@ -861,6 +877,11 @@ PrefabInstance:
 --- !u!137 &1550625649329227167 stripped
 SkinnedMeshRenderer:
   m_CorrespondingSourceObject: {fileID: 6868716418057165105, guid: b32d873cdba7d9048b02d47e663563e7, type: 3}
+  m_PrefabInstance: {fileID: 5392630641757002926}
+  m_PrefabAsset: {fileID: 0}
+--- !u!4 &3597273089282845659 stripped
+Transform:
+  m_CorrespondingSourceObject: {fileID: 8879528566716807029, guid: b32d873cdba7d9048b02d47e663563e7, type: 3}
   m_PrefabInstance: {fileID: 5392630641757002926}
   m_PrefabAsset: {fileID: 0}
 --- !u!137 &4141464085123014575 stripped

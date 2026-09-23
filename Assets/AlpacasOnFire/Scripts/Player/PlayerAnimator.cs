@@ -51,6 +51,16 @@ namespace AlpacasOnFire.Player
         {
             if (_animator == null || _animator.runtimeAnimatorController == null) return;
 
+            // 倒地時 RagdollRig 會把 Animator 關掉（關節在接管骨頭）。
+            // 這時候 CrossFade 是沒有效果的，但**記憶的狀態必須歸零** ——
+            // 不歸零的話爬起來之後 want 仍然等於 _current，這支就再也不會
+            // CrossFade，角色會卡在 ragdoll 結束的那一幀不動。
+            if (!_animator.enabled)
+            {
+                _current = Pose.None;
+                return;
+            }
+
             var want = Evaluate();
 
             // **狀態沒變就不要再 CrossFade。** 每一幀都呼叫的話動畫會一直從頭開始，
