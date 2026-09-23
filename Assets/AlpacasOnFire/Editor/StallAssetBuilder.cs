@@ -34,6 +34,7 @@ namespace AlpacasOnFire.EditorTools
             Add(failures, "Machine_ToolRack", () => BuildToolRacks(outElements));
             Add(failures, "Stall_ServiceBell", () => outElements.Add(BuildServiceBell()));
             Add(failures, "Npc_WoolNpc", () => outElements.Add(BuildWoolNpc()));
+            Add(failures, "Npc_WildBeast", () => outElements.Add(BuildWildBeast()));
             // 兩台織布機共用建置流程，只差版型與機體顏色（暖褐＝T恤、冷藍＝襯衫）
             Add(failures, "Machine_WeavingMachine", () => outElements.Add(
                 BuildWeavingMachine(LevelElementType.WeavingMachine, PatternType.TShirt,
@@ -586,6 +587,81 @@ namespace AlpacasOnFire.EditorTools
             return new GameCatalog.ElementEntry
             {
                 type = LevelElementType.WoolNpc,
+                prefab = prefab,
+            };
+        }
+
+        // ---------------------------------------------------------------- 大動物
+
+        /// <summary>
+        /// 大動物的佔位體型是 WoolNpc 的**兩倍**（2.7 高、0.68 半徑）。
+        /// 之後隘口與縫隙的尺寸要靠這個數字算 —— 「玩家過得去、大動物過不去」
+        /// 的縫隙寬度就是從這裡推導出來的，所以體型先定下來很重要。
+        ///
+        /// 刻意**不掛** Customer（牠不會來買衣服）也不掛 DeployableDevice（牠不是裝備）。
+        /// 批 1 也不掛 Prank.StaggerStatus —— 這一批道具對牠完全無效。
+        /// </summary>
+        private static GameCatalog.ElementEntry BuildWildBeast()
+        {
+            var bodyMat = Mat("M_BeastBody", PlaceholderPalette.Dye(DyeColorType.Red));
+            var faceMat = Mat("M_BeastFace", new Color(0.22f, 0.20f, 0.22f));
+            var tuftMat = Mat("M_BeastTuft", PlaceholderPalette.Wool);
+
+            var root = new GameObject("Npc_WildBeast");
+
+            // WoolNpc 是 1.35 / 0.34，這裡剛好兩倍
+            const float height = 2.7f;
+            const float radius = 0.68f;
+
+            var body = Prim(PrimitiveType.Capsule, "Body", root.transform,
+                new Vector3(0f, height * 0.5f, 0f),
+                new Vector3(radius * 2f, height * 0.5f, radius * 2f), bodyMat, keepCollider: false);
+
+            // 大一號的口鼻，盯著你的時候要看得出牠面向哪裡
+            Prim(PrimitiveType.Cube, "Snout", body.transform, new Vector3(0f, 0.48f, 0.62f),
+                 new Vector3(0.5f, 0.4f, 0.6f), faceMat, keepCollider: false);
+
+            // 五撮毛代表九份（一份一撮太多）
+            var tufts = new Renderer[5];
+            for (int i = 0; i < tufts.Length; i++)
+            {
+                float angle = -60f + i * 30f;
+                var offset = Quaternion.Euler(0f, angle, 0f) * new Vector3(0f, 0f, 0.5f);
+                var tuft = Prim(PrimitiveType.Sphere, $"Tuft{i}", root.transform,
+                    new Vector3(offset.x, height + 0.15f, offset.z),
+                    Vector3.one * 0.5f, tuftMat, keepCollider: false);
+                tufts[i] = tuft.GetComponent<Renderer>();
+            }
+
+            var interact = Empty("InteractionAnchor", root.transform, new Vector3(0f, height * 0.6f, 0f));
+
+            var cc = root.AddComponent<CharacterController>();
+            cc.height = height;
+            cc.radius = radius;
+            cc.center = new Vector3(0f, height * 0.5f, 0f);
+            cc.slopeLimit = 50f;
+            cc.stepOffset = 0.4f;
+            cc.skinWidth = 0.03f;
+
+            root.AddComponent<NetworkObject>();
+
+            var ncc = root.AddComponent<NetworkCharacterController>();
+            ncc.gravity       = -GameTuning.BeastGravity;
+            ncc.acceleration  = 18f;
+            ncc.braking       = 18f;
+            ncc.maxSpeed      = GameTuning.BeastGrazeSpeed;
+            ncc.rotationSpeed = 6f;
+
+            var beast = root.AddComponent<WildBeast>();
+            SetRef(beast, "_interactionAnchor", interact.transform);
+            SetRef(beast, "_bodyRenderer", body.GetComponent<Renderer>());
+            SetRefArray(beast, "_fleeceTufts", tufts);
+            SetEnum(beast, "_woolColor", (int)DyeColorType.Red);
+
+            var prefab = SavePrefab(root, "Npc_WildBeast");
+            return new GameCatalog.ElementEntry
+            {
+                type = LevelElementType.WildBeast,
                 prefab = prefab,
             };
         }

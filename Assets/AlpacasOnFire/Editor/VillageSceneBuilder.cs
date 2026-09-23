@@ -197,6 +197,7 @@ namespace AlpacasOnFire.EditorTools
 
             AttachTeamStash();
             int placed = SpawnNpcs();
+            SpawnBeasts();
 
             EditorSceneManager.MarkSceneDirty(scene);
             EditorSceneManager.SaveScene(scene);
@@ -246,6 +247,66 @@ namespace AlpacasOnFire.EditorTools
         /// 放一批 NPC。放在一個獨立的 [Npcs] 根物件底下，不塞進 [Level] ——
         /// [Level] 是關卡編輯器管的，NPC 不屬於那套資料，混在一起之後「重建關卡內容」會把牠們清掉。
         /// </summary>
+        /// <summary>
+        /// 大動物的家點。
+        ///
+        /// **原始規格是 (0, 0, 75)「北谷」，但那個地形不存在** —— blockout 那一批取消了，
+        /// 場上還是從 Stall_Test 複製過來的 60x60 地板（x/z 都是 ±30）。
+        /// 放在 z=75 牠會直接掉出世界，所以先改到地板上離出生點最遠的那一側。
+        /// 之後有正式地圖再把這個值改回北谷。
+        /// </summary>
+        private static readonly Vector3 BeastHome = new Vector3(0f, 0.2f, 18f);
+
+        /// <summary>
+        /// 放大動物。只放一隻，紅毛（最貴的毛配最難抓的動物）。
+        ///
+        /// 放在獨立的 [Beasts] 根物件底下，**不混進 [Npcs] 也不混進 [Level]**：
+        /// [Npcs] 是 WoolNpc 的家，[Level] 是關卡編輯器管的，
+        /// 混進去之後「重建關卡內容」會把牠清掉。
+        /// </summary>
+        private static int SpawnBeasts()
+        {
+            var catalog = LevelSceneBuilder.LoadCatalog();
+            var entry = catalog.elements.FirstOrDefault(e => e.type == LevelElementType.WildBeast);
+            if (entry.prefab == null)
+            {
+                BuildReport.Error("Catalog 裡沒有 WildBeast 的 prefab，場上不會有大動物。" +
+                                  "請重跑「羊駝很忙 / 1. 建置佔位資產」，" +
+                                  "再跑 Tools > Fusion > Rebuild Prefab Table。");
+                return 0;
+            }
+
+            var existing = GameObject.Find("[Beasts]");
+            if (existing != null) Object.DestroyImmediate(existing);
+
+            var root = new GameObject("[Beasts]");
+
+            var go = PrefabUtility.InstantiatePrefab(entry.prefab) as GameObject;
+            if (go == null)
+            {
+                BuildReport.Warn("InstantiatePrefab 回傳 null，改用一般 Instantiate。");
+                go = Object.Instantiate(entry.prefab);
+            }
+
+            go.name = "WildBeast_Red";
+            go.transform.SetParent(root.transform, false);
+            go.transform.position = BeastHome;
+
+            var beast = go.GetComponent<WildBeast>();
+            if (beast != null) SetEnum(beast, "_woolColor", (int)DyeColorType.Red);
+
+            if (PrefabUtility.IsPartOfPrefabInstance(go))
+            {
+                PrefabUtility.RecordPrefabInstancePropertyModifications(go.transform);
+                foreach (var comp in go.GetComponents<Component>())
+                    if (comp != null) PrefabUtility.RecordPrefabInstancePropertyModifications(comp);
+            }
+
+            BuildReport.Info($"放置 1 隻大動物（紅毛，家點 {BeastHome}）。" +
+                             "注意：原始規格的 (0,0,75) 北谷不存在，已改到目前地板範圍內。");
+            return 1;
+        }
+
         private static int SpawnNpcs()
         {
             var catalog = LevelSceneBuilder.LoadCatalog();
@@ -341,6 +402,18 @@ namespace AlpacasOnFire.EditorTools
             int npcs = Object.FindObjectsByType<WoolNpc>(FindObjectsSortMode.None).Length;
             if (npcs != expectedNpcs)
                 problems.Add($"場上有 {npcs} 隻 WoolNpc，應該要有 {expectedNpcs} 隻");
+
+            // 大動物：剛好一隻，而且**不可以**同時是 WoolNpc。
+            // 兩者掛在一起的話 CustomerQueue 會把大動物抽去當顧客，
+            // 場面會變成一隻兩倍大的野獸排隊買 T-shirt。
+            var beasts = Object.FindObjectsByType<WildBeast>(FindObjectsSortMode.None);
+            if (beasts.Length != 1)
+                problems.Add($"場上有 {beasts.Length} 隻 WildBeast，應該剛好 1 隻");
+
+            foreach (var b in beasts)
+                if (b.GetComponent<WoolNpc>() != null)
+                    problems.Add($"{b.name} 身上同時掛了 WoolNpc —— " +
+                                 "大動物會被 CustomerQueue 抽去當顧客，請拿掉");
 
             bool hasFloor = false;
             foreach (var root in opened.GetRootGameObjects())

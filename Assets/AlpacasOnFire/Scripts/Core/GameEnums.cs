@@ -98,6 +98,11 @@ namespace AlpacasOnFire.Core
         // 一台機器只做一種版型，想要兩種版型就得擺兩台，這是佔格子的取捨。
         // **不要把 25 改名或改值**：它已經被寫進 prefab 與佈局存檔了。
         WeavingMachineShirt = 27,  // 襯衫織布機
+
+        // 大動物：體型兩倍、會逃跑、身上一次掉九份毛。
+        // **不是 WoolNpc 的一種模式**，是獨立元件（WildBeast.cs），
+        // 也刻意不進 WoolNpc.All —— 那份清單是顧客系統抽人用的。
+        WildBeast = 28,
     }
 
     /// <summary>

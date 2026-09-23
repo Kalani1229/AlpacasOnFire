@@ -392,5 +392,51 @@ namespace AlpacasOnFire.Core
             if (money >= Star1Threshold) return 1;
             return 0;
         }
+
+        // ---------- 大動物（批 1）----------
+        //
+        // 核心規則只有一條：**牠永遠往「離最近的玩家最遠」的方向跑。**
+        // 難度曲線是這條規則自己長出來的，沒有任何難度設定：
+        //   一個人 -> 牠永遠背對你而且比你快，抓不到是正確的
+        //   兩個人 -> 站兩側，牠往 A 跑就被 B 逼回來
+        //   四個人 -> 切斷退路，很快逼到角落
+        public const int   BeastFleece          = 9;     // 身上的毛，一次全掉
+        public const float BeastGrazeSpeed      = 1.2f;  // 吃草閒晃
+        public const float BeastFleeSpeed       = 6.5f;  // 逃跑（玩家是 5.0，追不上是刻意的）
+        public const float BeastStareRadius     = 12f;   // 進到這裡牠會停下來盯著你
+        public const float BeastAlertRadius     = 10f;   // 進到這裡牠開始逃
+        public const float BeastTerritoryRadius = 40f;   // 不會離開領域
+        public const float BeastShearRange      = 2.5f;  // 剃毛距離（＝ InteractRange）
+        public const float BeastFleeMinSeconds  = 1.5f;  // 至少逃這麼久，不會你一退牠就停
+        public const float BeastArriveThreshold = 1.2f;
+        public const float BeastGravity         = 20f;
+
+        /// <summary>剃完之後強制逃跑的時間 —— 要真的跑掉，不是原地繼續被圍。</summary>
+        public const float BeastShearedFleeSeconds = 5f;
+
+        // 逃跑方向的取樣。**不要用「直接取反方向」** —— 那會在領域邊界與牆壁上卡死。
+        public const int   BeastDirectionSamples = 16;   // 繞一圈取幾個方向
+        public const float BeastLookaheadSeconds = 1.0f; // 評分時往前推算多久
+        public const float BeastObstacleProbe    = 3.5f; // 方向上多近有障礙就淘汰
+
+        /// <summary>方向重算的間隔。每個 tick 重算會抖，中間沿用上次的方向。</summary>
+        public const float BeastRethinkSeconds   = 0.25f;
+
+        /// <summary>
+        /// 第二近玩家的獎勵權重。
+        ///
+        /// **少了這一項，牠會直直撞進第二個玩家懷裡**，夾擊變得太容易。
+        /// 加了之後兩個人必須真的站對位置才夾得到。
+        /// </summary>
+        public const float BeastSecondPlayerWeight = 0.3f;
+
+        /// <summary>
+        /// 預測點下方要探多深才算「有地面」。
+        ///
+        /// 這條不在原始規格裡，是我補的：目前的地圖只有 60x60 的地板，
+        /// 而領域半徑是 40 —— 領域比地板大，光靠領域檢查擋不住牠跑出地板邊緣摔下去。
+        /// 有正式地形（有牆）之後這條就只是多一層保險。
+        /// </summary>
+        public const float BeastGroundProbe      = 4f;
     }
 }
