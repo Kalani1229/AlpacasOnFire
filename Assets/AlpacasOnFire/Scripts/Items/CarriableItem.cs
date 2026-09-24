@@ -118,7 +118,68 @@ namespace AlpacasOnFire.Items
             transform.position = SnapToGround(position);
         }
 
+        /// <summary>
+        /// 只解除「誰拿著我」，不動位置也不落地。
+        ///
+        /// 給那種「物件要被別的系統接管、但不是掉在地上」的情況用
+        /// （手提箱展開成攤位）。**不解除的話它會永遠貼在那個人手上** ——
+        /// LateUpdate 只看 HolderId，不管玩家那邊的 HeldId 已經清掉了。
+        /// </summary>
+        public void ReleaseHolder()
+        {
+            if (!HasStateAuthority) return;
+            HolderId = default;
+        }
+
+        /// <summary>
+        /// 這個東西要蓄多久才丟得到最遠 —— 也就是它的**重量**。
+        ///
+        /// 羊毛幾乎瞬間、卡車要兩秒。重物不是「不能丟」，是「要站著舉一會兒」，
+        /// 所以在混亂中丟重物本身就是一種風險。
+        ///
+        /// 用 ItemKind 分級而不是每個 prefab 拉一個數字，是為了讓重量表集中在一處；
+        /// 特例（卡車）覆寫這支就好。
+        /// </summary>
+        public virtual float ThrowChargeSeconds => _kind switch
+        {
+            ItemKind.Wool        => GameTuning.ThrowChargeLight,
+            ItemKind.Thread      => GameTuning.ThrowChargeLight,
+            ItemKind.DyeMaterial => GameTuning.ThrowChargeLight,
+            ItemKind.Accessory   => GameTuning.ThrowChargeLight,
+            ItemKind.HairTonic   => GameTuning.ThrowChargeLight,
+
+            ItemKind.Garment     => GameTuning.ThrowChargeMedium,
+            ItemKind.Box         => GameTuning.ThrowChargeMedium,
+            ItemKind.DyeCanister => GameTuning.ThrowChargeMedium,
+            ItemKind.Shears      => GameTuning.ThrowChargeMedium,
+            ItemKind.Leek        => GameTuning.ThrowChargeMedium,
+
+            ItemKind.Suitcase    => GameTuning.ThrowChargeHeavy,
+            ItemKind.Truck       => GameTuning.ThrowChargeTruck,
+
+            _                    => GameTuning.ThrowChargeMedium,
+        };
+
+        /// <summary>
+        /// 左鍵也能拿來蓄力丟出嗎。
+        ///
+        /// 預設 false：左鍵是「對前面的目標做事」，丟出歸 Q。
+        /// 卡車是例外 —— 它唯一的用法就是丟出去，拿著它的時候左鍵沒有別的事好做，
+        /// 讓兩個鍵都能丟比較順手，不用特地去找 Q。
+        ///
+        /// 為 true 的東西，**拿在手上時左鍵不再做情境互動**（不然一按就會
+        /// 同時撿東西又開始蓄力）。要騰出手就先用 Q 點按放下。
+        /// </summary>
+        public virtual bool ChargesOnPrimary => false;
+
         public void LaunchFrom(PlayerController player, Vector3 direction)
+            => LaunchFrom(player, direction, GameTuning.ThrowSpeed);
+
+        /// <summary>
+        /// 指定初速的丟出。卡車用它做「蓄力越久飛越遠」——
+        /// 同樣的拋物線，只有初速不同，所以射程自然跟著變。
+        /// </summary>
+        public void LaunchFrom(PlayerController player, Vector3 direction, float speed)
         {
             if (!HasStateAuthority) return;
             HolderId = default;
@@ -126,9 +187,18 @@ namespace AlpacasOnFire.Items
             FlightElapsed = 0f;
             ThrowerId = player.Object.Id;
             var dir = (direction.normalized + Vector3.up * GameTuning.ThrowUpwardRatio).normalized;
-            FlightVelocity = dir * GameTuning.ThrowSpeed;
+            FlightVelocity = dir * speed;
             transform.position = player.HandAnchor.position;
         }
+
+        /// <summary>
+        /// 飛行結束（撞到東西或落地）。預設什麼都不做 —— 東西就停在那裡等人撿。
+        /// 卡車覆寫它來引爆。
+        ///
+        /// 注意這支**在物件還活著的時候**呼叫，可以安全地讀寫欄位；
+        /// 要 Despawn 的話請自己負責。
+        /// </summary>
+        protected virtual void OnFlightEnded(bool hitSomething, Vector3 point) { }
 
         private void TickFlight(float dt)
         {
@@ -152,6 +222,7 @@ namespace AlpacasOnFire.Items
                 InFlight = false;
                 FlightVelocity = Vector3.zero;
                 transform.position = hit.point + Vector3.up * _groundOffset;
+                OnFlightEnded(true, hit.point);
                 return;
             }
 
@@ -160,6 +231,7 @@ namespace AlpacasOnFire.Items
                 InFlight = false;
                 FlightVelocity = Vector3.zero;
                 transform.position = SnapToGround(transform.position);
+                OnFlightEnded(false, transform.position);
                 return;
             }
 
@@ -219,12 +291,18 @@ namespace AlpacasOnFire.Items
                 ItemKind.DyeMaterial   => PlaceholderPalette.Dye(spec.Color),
                 ItemKind.DyeCanister   => PlaceholderPalette.Dye(spec.Color),
                 ItemKind.Wool          => PlaceholderPalette.Wool,
+                ItemKind.Thread        => PlaceholderPalette.Dye(spec.Color),
                 ItemKind.HairTonic     => PlaceholderPalette.HairTonic,
                 ItemKind.Accessory     => PlaceholderPalette.Accessory,
                 ItemKind.Box           => PlaceholderPalette.Box,
                 _                      => Color.white,
             };
-            if (_kind == ItemKind.Shears) return; // 工具維持 prefab 配色
+            // 工具與惡搞道具維持 prefab 配色 —— 它們的顏色是辨識用的，
+            // 被 Spec.Color（預設白）蓋掉就全部變成白色方塊，分不出誰是誰
+            if (_kind == ItemKind.Shears
+                || _kind == ItemKind.Spit
+                || _kind == ItemKind.Leek
+                || _kind == ItemKind.Truck) return;
 
             _mpb ??= new MaterialPropertyBlock();
             foreach (var r in _tintTargets)
@@ -253,22 +331,30 @@ namespace AlpacasOnFire.Items
         public Transform InteractionAnchor => transform;
         public virtual int InteractionPriority => 0;
 
+        /// <summary>
+        /// **不要求空手。** 手上有東西的話，Interact 會先把它放到腳邊再撿
+        /// —— 撿東西不該逼玩家先找地方放手上的東西。主動接住（TryManualCatch）
+        /// 早就是這個手感了，這裡跟它一致。
+        ///
+        /// 手上拿著「能用在這個物件上」的東西時（IItemUser，例如把衣服裝進箱子）
+        /// 那件事優先，不會變成放下箱子去撿衣服。
+        /// </summary>
         public virtual bool CanInteract(in InteractionContext ctx)
         {
             if (IsHeld) return false;            // Phase 2 才有搶奪
-            if (ctx.Player == null) return false;
-
-            if (ctx.Held is IItemUser user)
-                return user.TryUseOnItem(this, ctx, false, out _);
-
-            return ctx.IsEmptyHanded;
+            return ctx.Player != null;
         }
 
         public virtual string GetPrompt(in InteractionContext ctx)
         {
             if (ctx.Held is IItemUser user && user.TryUseOnItem(this, ctx, false, out var prompt))
                 return prompt;
-            return $"[Space] 撿起 {DisplayName}";
+
+            // 手上有東西時要先講明會放下什麼，不然玩家會覺得東西莫名其妙掉了
+            if (!ctx.IsEmptyHanded)
+                return $"[左鍵] 撿起 {DisplayName}（先放下 {ctx.Held.DisplayName}）";
+
+            return $"[左鍵] 撿起 {DisplayName}";
         }
 
         public virtual void Interact(in InteractionContext ctx)
@@ -278,13 +364,14 @@ namespace AlpacasOnFire.Items
             if (ctx.Held is IItemUser user && user.TryUseOnItem(this, ctx, true, out _))
                 return;
 
-            if (ctx.IsEmptyHanded)
-                ctx.Player.Carry.TryPickup(this);
+            ctx.Player.Carry.MakeRoomForPickup();
+            ctx.Player.Carry.TryPickup(this);
         }
 
         public virtual string DisplayName => _kind switch
         {
             ItemKind.Wool        => "羊毛",
+            ItemKind.Thread      => PlaceholderPalette.DyeName(Spec.Color) + "絲線",
             ItemKind.DyeMaterial => PlaceholderPalette.DyeName(Spec.Color) + "染料",
             ItemKind.DyeCanister => PlaceholderPalette.DyeName(Spec.Color) + "顏料",
             ItemKind.Accessory   => PlaceholderPalette.AccessoryName(Spec.Accessory),
@@ -292,6 +379,9 @@ namespace AlpacasOnFire.Items
             ItemKind.Garment     => Spec.Describe(),
             ItemKind.Box         => "箱子",
             ItemKind.Shears      => "剃毛器",
+            ItemKind.Spit        => "口水",
+            ItemKind.Leek        => "大蔥",
+            ItemKind.Truck       => "卡車",
             _                    => "物品",
         };
     }

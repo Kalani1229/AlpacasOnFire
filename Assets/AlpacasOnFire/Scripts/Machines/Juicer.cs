@@ -65,6 +65,7 @@ namespace AlpacasOnFire.Machines
 
             var color = ctx.Held.Spec.Color;
             ctx.Player.Carry.ConsumeHeld();
+            ctx.Player.TriggerWork();   // 放入染料算「在工作」
             InsertDye(color);
         }
 

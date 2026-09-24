@@ -61,6 +61,7 @@ namespace AlpacasOnFire.Core
         public static string PatternName(PatternType p) => p switch
         {
             PatternType.TShirt => "T-shirt",
+            PatternType.Shirt  => "襯衫",
             PatternType.Pants  => "褲子",
             PatternType.Hat    => "帽子",
             _                  => "無",

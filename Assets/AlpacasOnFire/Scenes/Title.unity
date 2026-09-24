@@ -151,7 +151,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: f392ac0c526e74559be083cc39cdb6f0, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::AlpacasOnFire.UI.TitleMenu
-  _gameSceneName: Level01_Workshop
+  _gameSceneName: Village_Test
 --- !u!114 &451707618
 MonoBehaviour:
   m_ObjectHideFlags: 0

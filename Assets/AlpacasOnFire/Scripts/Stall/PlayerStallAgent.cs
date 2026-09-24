@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using AlpacasOnFire.Core;
 using AlpacasOnFire.Interaction;
 using AlpacasOnFire.Player;
@@ -20,8 +21,21 @@ namespace AlpacasOnFire.Stall
     /// </summary>
     public class PlayerStallAgent : NetworkBehaviour
     {
+        /// <summary>
+        /// 場上所有玩家的擺攤狀態。
+        ///
+        /// 有人需要問「現在有沒有人手上正舉著某一台裝備」—— 最典型的是
+        /// StallManager.SyncCrates()：它靠「場上找不到這個顏色的箱子」來決定要不要補一個，
+        /// 而拿在手上的箱子已經被 Despawn 了、在場上找不到。沒有這份清單的話，
+        /// 玩家一把箱子拿起來，下一個 tick 就會被補生一個，放下之後就變成兩個。
+        /// </summary>
+        public static readonly List<PlayerStallAgent> All = new();
+
         [Networked] public int PendingTypeRaw { get; set; }
         [Networked] public int PendingFacing { get; set; }
+
+        /// <summary>型別專屬參數（素材箱的顏色）。放下去時要原樣帶回去。</summary>
+        [Networked] public int PendingVariant { get; set; }
 
         /// <summary>拿起來之前它在哪一格。Q 取消時要放回這裡。</summary>
         [Networked] public NetworkBool HasOrigin { get; set; }
@@ -40,10 +54,12 @@ namespace AlpacasOnFire.Stall
         public override void Spawned()
         {
             _player = GetComponent<PlayerController>();
+            if (!All.Contains(this)) All.Add(this);
         }
 
         public override void Despawned(NetworkRunner runner, bool hasState)
         {
+            All.Remove(this);
             DestroyHelpers();
         }
 
@@ -59,12 +75,14 @@ namespace AlpacasOnFire.Stall
         /// 進入放置預覽。originCell 是它被拿起來之前的格子（Q 取消時放回去）。
         /// 只在 StateAuthority 呼叫。
         /// </summary>
-        public void BeginPlacement(LevelElementType type, int facing, int originCellX, int originCellZ)
+        public void BeginPlacement(LevelElementType type, int facing, int originCellX, int originCellZ,
+                                   int variant = 0)
         {
             if (!HasStateAuthority) return;
 
             PendingTypeRaw = (int)type;
             PendingFacing = StallGrid.NormalizeFacing(facing);
+            PendingVariant = variant;
 
             HasOrigin = true;
             OriginCellX = originCellX;
@@ -77,6 +95,7 @@ namespace AlpacasOnFire.Stall
             if (!HasStateAuthority) return;
             PendingTypeRaw = 0;
             PendingFacing = 0;
+            PendingVariant = 0;
             HasOrigin = false;
         }
 
@@ -95,13 +114,13 @@ namespace AlpacasOnFire.Stall
 
             if (stall != null && HasOrigin && stall.MatDeployed)
             {
-                if (!stall.TryPlaceDevice(type, OriginCellX, OriginCellZ, OriginFacing, out _))
+                if (!stall.TryPlaceDevice(type, OriginCellX, OriginCellZ, OriginFacing, out _, PendingVariant))
                 {
                     StallGrid.RotatedFootprint(StallCatalog.Footprint(type), OriginFacing,
                                                out int w, out int d);
                     if (stall.BuildOccupancy().TryFindFree(w, d, out int cx, out int cz))
                     {
-                        stall.TryPlaceDevice(type, cx, cz, OriginFacing, out _);
+                        stall.TryPlaceDevice(type, cx, cz, OriginFacing, out _, PendingVariant);
                         Debug.LogWarning($"[擺攤] 取消放置時原格 ({OriginCellX},{OriginCellZ}) 已被佔用，" +
                                          $"{type} 改放到 ({cx},{cz})。");
                     }
@@ -165,7 +184,7 @@ namespace AlpacasOnFire.Stall
                 return;
             }
 
-            if (!stall.TryPlaceDevice(PendingType, cx, cz, PendingFacing, out var placeResult))
+            if (!stall.TryPlaceDevice(PendingType, cx, cz, PendingFacing, out var placeResult, PendingVariant))
             {
                 RPC_PlacementRejected(StallGeometry.Describe(placeResult));
                 return;
@@ -184,8 +203,8 @@ namespace AlpacasOnFire.Stall
             string facing = $"朝{StallGrid.FacingName(PendingFacing)}（{StallCatalog.FacingMeaning(PendingType)}）";
 
             return result == PlacementResult.Ok
-                ? $"[Space] 放下{name}　{facing}　[滾輪] 轉 90°　[Q] 取消"
-                : $"{StallGeometry.Describe(result)}　[滾輪] 轉 90°　[Q] 取消";
+                ? $"[左鍵] 放下{name}　{facing}　[滾輪] 轉 90°　[右鍵] 取消"
+                : $"{StallGeometry.Describe(result)}　[滾輪] 轉 90°　[右鍵] 取消";
         }
 
         // ---------------- RPC（用戶端 -> 狀態權威）----------------
@@ -209,7 +228,7 @@ namespace AlpacasOnFire.Stall
             StallManager.LocalNotice(reason);
         }
 
-        // ---------------- 本機輸入（滾輪旋轉 / Q 取消）----------------
+        // ---------------- 本機輸入（滾輪旋轉 / 右鍵取消）----------------
 
         private void Update()
         {
@@ -220,16 +239,18 @@ namespace AlpacasOnFire.Stall
             if (input != null && !input.LookEnabled) return;
 
             var mouse = Mouse.current;
-            if (mouse != null)
-            {
-                float scroll = mouse.scroll.ReadValue().y;
-                if (Mathf.Abs(scroll) > 0.01f)
-                    RPC_RotatePending(scroll > 0f ? 1 : -1);
-            }
+            if (mouse == null) return;
 
-            var kb = Keyboard.current;
-            // Q：預覽中代表取消。這時候手上是空的，既有的丟／接邏輯本來就不會做事，不會打架。
-            if (kb != null && kb.qKey.wasPressedThisFrame)
+            float scroll = mouse.scroll.ReadValue().y;
+            if (Mathf.Abs(scroll) > 0.01f)
+                RPC_RotatePending(scroll > 0f ? 1 : -1);
+
+            // 右鍵：取消放置。
+            // 取消是設定類動作，歸右鍵才符合「左鍵即時、右鍵設定」的規則
+            // （左鍵已經被接住／互動／丟出佔滿了）。
+            // PlayerController 在 HasPending 為 true 時會跳過次要互動，
+            // 所以這裡不會跟手提箱的右鍵選色打架。
+            if (mouse.rightButton.wasPressedThisFrame)
                 RPC_CancelPending();
         }
 

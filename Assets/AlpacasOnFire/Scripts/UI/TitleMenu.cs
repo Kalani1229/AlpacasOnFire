@@ -13,7 +13,8 @@ namespace AlpacasOnFire.UI
     [RequireComponent(typeof(Canvas))]
     public class TitleMenu : MonoBehaviour
     {
-        [SerializeField] private string _gameSceneName = "Level01_Workshop";
+        [Tooltip("按下開始之後要載入的場景。目前指向 v6 的羊駝村。")]
+        [SerializeField] private string _gameSceneName = "Village_Test";
 
         private void Awake()
         {
@@ -62,6 +63,17 @@ namespace AlpacasOnFire.UI
 
         private void Launch(GameMode mode)
         {
+            // 場景沒有登錄在 Build Settings 的話 LoadScene 只會丟一句很難懂的錯，
+            // 畫面卡在標題、玩家以為按鈕壞了。先擋下來給一句看得懂的話。
+            if (SceneUtility.GetBuildIndexByScenePath(_gameSceneName) < 0
+                && !Application.CanStreamedLevelBeLoaded(_gameSceneName))
+            {
+                Debug.LogError($"[羊駝很忙] 場景「{_gameSceneName}」不在 Build Settings 裡，無法開始。" +
+                               "請先執行選單「羊駝很忙 / v6 羊駝村 / 1. 建置羊駝村測試場景」" +
+                               "（它會順手把場景登錄進去）。");
+                return;
+            }
+
             PendingLaunch.Mode = mode;
             PendingLaunch.HasPending = true;
             SceneManager.LoadScene(_gameSceneName);

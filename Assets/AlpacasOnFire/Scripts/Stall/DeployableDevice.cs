@@ -42,6 +42,12 @@ namespace AlpacasOnFire.Stall
         /// <summary>開箱時的彈出順序，用來錯開動畫。純視覺用途。</summary>
         [Networked] public int PopOrder { get; set; }
 
+        /// <summary>
+        /// 型別專屬參數。目前只有素材箱用（存顏色）。
+        /// 拿起來重擺時要一起帶著走，不然箱子重放之後顏色會不見。
+        /// </summary>
+        [Networked] public int Variant { get; set; }
+
         public LevelElementType DeviceType =>
             DeviceTypeRaw != 0 ? (LevelElementType)DeviceTypeRaw : _deviceType;
 
@@ -75,7 +81,8 @@ namespace AlpacasOnFire.Stall
         }
 
         /// <summary>由 StallManager 在 Runner.Spawn 的初始化回呼裡設定。</summary>
-        public void MarkDeployed(LevelElementType type, int cellX, int cellZ, int facing, int popOrder)
+        public void MarkDeployed(LevelElementType type, int cellX, int cellZ, int facing, int popOrder,
+                                 int variant = 0)
         {
             StallOwned = true;
             DeviceTypeRaw = (int)type;
@@ -83,11 +90,12 @@ namespace AlpacasOnFire.Stall
             CellZ = cellZ;
             FacingRaw = StallGrid.NormalizeFacing(facing);
             PopOrder = popOrder;
+            Variant = variant;
         }
 
         /// <summary>目前這台裝備的佈局紀錄（收攤時寫回手提箱用）。</summary>
         public StallSlotRecord ToRecord()
-            => StallSlotRecord.Create(DeviceType, CellX, CellZ, Facing);
+            => StallSlotRecord.Create(DeviceType, CellX, CellZ, Facing, Variant);
 
         // ---------------- 位置：由格子座標推算 ----------------
 
@@ -203,12 +211,12 @@ namespace AlpacasOnFire.Stall
 
             // 拿起來 = 從格子上移除 + 進入放置預覽（記住原本的格子，Q 取消時要放回去）
             var type = DeviceType;
-            int cx = CellX, cz = CellZ, facing = Facing;
+            int cx = CellX, cz = CellZ, facing = Facing, variant = Variant;
 
             GameAudio.PlayAt(SfxId.DevicePickup, OwnerTransform.position);
             Runner.Despawn(OwnerObject);
 
-            agent.BeginPlacement(type, facing, cx, cz);
+            agent.BeginPlacement(type, facing, cx, cz, variant);
         }
     }
 }

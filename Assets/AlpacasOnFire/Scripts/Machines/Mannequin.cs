@@ -96,7 +96,14 @@ namespace AlpacasOnFire.Machines
             if (Worn.Color == color) return;
 
             var spec = Worn;
+
+            // 單色的衣服被塗成別的顏色之後，點綴色要跟著走 ——
+            // 不然主色變紅、點綴色停在原本的白，這件衣服會被當成「紅底白紋」，
+            // 跟訂單要的純紅 T 恤比對不起來（v6 之前 accent 不存在，沒有這個問題）。
+            bool wasSingleColour = !spec.HasAccent;
             spec.Color = color;
+            if (wasSingleColour) spec.AccentColor = color;
+
             Worn = spec;
 
             GlowColorRaw = (int)color;
@@ -162,10 +169,12 @@ namespace AlpacasOnFire.Machines
             if (_paintProgressBar.gameObject.activeSelf != show) _paintProgressBar.gameObject.SetActive(show);
             if (!show) return;
 
+            // 由左往右長，不是從中心往兩邊撐開
             float t = Mathf.Clamp01(coverage / GameTuning.PaintCoverageRequired);
-            var s = _paintProgressBar.localScale;
-            _paintProgressBar.localScale = new Vector3(Mathf.Max(0.02f, t), s.y, s.z);
+            _paintBar.Apply(_paintProgressBar, t);
         }
+
+        private readonly BarAnchor _paintBar = new(BarAnchor.Axis.X);
 
         /// <summary>達標時外框發光三秒，逐漸淡出。</summary>
         private void UpdateCompletionGlow()

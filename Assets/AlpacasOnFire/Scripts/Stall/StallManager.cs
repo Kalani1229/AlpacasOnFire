@@ -1,6 +1,7 @@
 using System;
 using AlpacasOnFire.Core;
 using AlpacasOnFire.Items;
+using AlpacasOnFire.Machines;
 using AlpacasOnFire.Orders;
 using AlpacasOnFire.Player;
 using Fusion;
@@ -30,10 +31,25 @@ namespace AlpacasOnFire.Stall
 
         /// <summary>UI 用：狀態改變（新狀態）。</summary>
         public static event Action<StallState> OnStateChanged;
-        /// <summary>UI 用：本場結算（營業額, 成交筆數, 錯過筆數, 結算後的資本額）。</summary>
-        public static event Action<int, int, int, int> OnRoundSettled;
+        /// <summary>
+        /// UI 用：本場結算。
+        /// （營業額, 成交筆數, 錯過筆數, 結算後的資本額, 本輪門檻, 有沒有達標）
+        ///
+        /// target = 0 代表這一場沒有門檻（Stall_Test 的無限輪次模式），
+        /// 這時 passed 永遠是 true。
+        /// </summary>
+        public static event Action<int, int, int, int, int, bool> OnRoundSettled;
         /// <summary>UI 用：需要對玩家說一句話（放置失敗、開張條件不足……）。</summary>
         public static event Action<string> OnStallNotice;
+
+        [Header("Loadout")]
+        [Tooltip("勾起來就用 v6 羊駝村的裝備組（織布機／交貨窗口／輸送帶 x2，手提箱兼料倉）。" +
+                 "不勾就是 Classic —— 舊場景不要動這一格。")]
+        [SerializeField] private bool _villageLoadout = false;
+
+        [Tooltip("勾起來就啟用 run 循環：每輪有營收門檻，沒達標這一局就結束。" +
+                 "**Stall_Test 不要勾** —— 不勾的話結算行為跟以前完全一樣，可以無限輪次玩下去。")]
+        [SerializeField] private bool _runMode = false;
 
         [Header("Suitcase")]
         [Tooltip("開場時要不要自動生成一個手提箱給隊伍。測試場景會開啟。")]
@@ -74,6 +90,40 @@ namespace AlpacasOnFire.Stall
         [Networked] public int RoundMissed { get; set; }
         [Networked] public int RoundRevenue { get; set; }
 
+        // ---------------- run 循環 ----------------
+        //
+        // RoundRevenue 與 Capital 是兩件事，不要混：
+        //   RoundRevenue  本輪營收，用來比對門檻，每輪歸零
+        //   Capital       累積資本，只進不出，之後給升級用
+
+        /// <summary>目前是第幾輪，從 1 開始。</summary>
+        [Networked] public int CurrentRound { get; set; }
+
+        /// <summary>本輪的營收門檻，開張時寫入。**0 代表沒有門檻**（非 run 模式）。</summary>
+        [Networked] public int RoundTarget { get; set; }
+
+        /// <summary>這一局賣出過最貴的一件衣服，結算畫面要秀。</summary>
+        [Networked] public GarmentSpec BestSale { get; set; }
+        [Networked] public int BestSalePrice { get; set; }
+
+        /// <summary>這一場有沒有 run 循環（每輪門檻）。給 HUD 判斷要不要顯示目標。</summary>
+        public bool RunMode => _runMode;
+
+        /// <summary>營業中的即時營收。營業中讀 LevelDirector，結算後讀定格的 RoundRevenue。</summary>
+        public int CurrentRevenue
+        {
+            get
+            {
+                if (State != StallState.Open) return RoundRevenue;
+                var director = LevelDirector.Instance;
+                return director != null ? director.Money : 0;
+            }
+        }
+
+        /// <summary>本輪離門檻還差多少（達標後是 0）。</summary>
+        public int RoundRemaining =>
+            RoundTarget <= 0 ? 0 : Mathf.Max(0, RoundTarget - CurrentRevenue);
+
         private StallMatVisual _matVisual;
         private StallState _lastRenderedState = (StallState)255;
         private bool _pendingSuitcaseSpawn;
@@ -106,6 +156,12 @@ namespace AlpacasOnFire.Stall
         public override void Spawned()
         {
             Instance = this;
+
+            // **每個場景都明確設定一次**，不要只在 village 時才設。
+            // StallCatalog.Active 是 static，如果 Unity 關掉了 Domain Reload，
+            // 上一次進 Village 的設定會殘留到下一次進 Stall_Test。
+            StallCatalog.Active = _villageLoadout ? StallLoadout.Village : StallLoadout.Classic;
+
             StallUIRoot.EnsureExists();
 
             // 襯布放不下全部裝備是設計錯誤，不是執行期狀況 —— 一開場就吼出來
@@ -119,6 +175,12 @@ namespace AlpacasOnFire.Stall
                 MatDeployed = false;
                 Capital = GameTuning.StallStartingCapital;
                 RoundsCompleted = 0;
+
+                // run 循環：從第 1 輪開始。門檻要等開張才寫（見 OpenForBusiness）。
+                CurrentRound = 1;
+                RoundTarget = 0;
+                BestSale = default;
+                BestSalePrice = 0;
 
                 // 手提箱刻意不在 Spawned() 裡生成，改成第一個 tick 才生。
                 // 場景物件的 Spawned() 發生在 Runner 還在註冊場景物件的階段，
@@ -152,6 +214,22 @@ namespace AlpacasOnFire.Stall
             if (success) RoundDeliveries++;
         }
 
+        /// <summary>
+        /// 記一筆成交，用來追蹤「這一局最貴的一件」。
+        ///
+        /// 走一支專用的方法而不是掛在 OnDeliveryResult 上，是因為那個事件只帶
+        /// 一句描述字串，拿不到 GarmentSpec 與價格 —— 結算畫面要的正是那兩樣。
+        /// 由 CustomerQueue.TryDeliver() 在成交時呼叫。只在 StateAuthority。
+        /// </summary>
+        public void RecordSale(GarmentSpec spec, int price)
+        {
+            if (!HasStateAuthority) return;
+            if (price <= BestSalePrice) return;
+
+            BestSale = spec;
+            BestSalePrice = price;
+        }
+
         // ---------------- 模擬 ----------------
 
         public override void FixedUpdateNetwork()
@@ -165,6 +243,7 @@ namespace AlpacasOnFire.Stall
             }
 
             EnsureBell();
+            SyncCrates();
 
             if (State != StallState.Open) return;
 
@@ -237,6 +316,159 @@ namespace AlpacasOnFire.Stall
                 Runner.Despawn(bell.Object);
                 BellId = default;
             }
+        }
+
+        // ---------------- 素材箱 ----------------
+
+        /// <summary>
+        /// 讓場上的素材箱跟手提箱的選色一致。
+        ///
+        /// 這就是「選了哪幾種顏色，場上就直接冒出那幾個顏色的箱子」的實作：
+        ///  - 選了某色但場上沒有那個箱子 -> 生一個到最靠近背緣的空格
+        ///  - 場上有箱子但那個顏色被取消了 -> 把剩料退回背包再收掉
+        ///
+        /// 每個 tick 檢查一次，玩家在面板上點來點去都跟得上。
+        /// **營業中不動** —— 那時候顏色已經鎖定，箱子也不該憑空增減。
+        /// </summary>
+        private void SyncCrates()
+        {
+            if (!HasStateAuthority) return;
+            if (!StallCatalog.Active.SuitcaseIsStash) return;
+            if (!MatDeployed || !IsArrangeMode) return;
+
+            var suitcase = ActiveSuitcase;
+            if (suitcase == null) return;
+
+            // ---- 多出來的箱子（顏色被取消了）----
+            for (int i = MaterialCrate.All.Count - 1; i >= 0; i--)
+            {
+                var crate = MaterialCrate.All[i];
+                if (crate == null || crate.Object == null || !crate.Object.IsValid) continue;
+                if (!IsStallOwned(crate)) continue;
+                if (suitcase.IsSelected(crate.Color)) continue;
+
+                int returned = crate.UnloadToStash();
+                if (returned > 0)
+                    Debug.Log($"[v6] 取消 {PlaceholderPalette.DyeName(crate.Color)} -> 退回 {returned} 份到背包。");
+
+                Runner.Despawn(crate.Object);
+            }
+
+            // ---- 缺少的箱子（新選了顏色）----
+            for (int slot = 0; slot < SuitcaseItem.ColorSlots; slot++)
+            {
+                if (!suitcase.HasColor(slot)) continue;
+                var colour = suitcase.ColorAt(slot);
+
+                // 場上找得到就不補。**拿在某個玩家手上的也算找得到** ——
+                // 見 IsCratePending 的註解，漏掉這個條件就會分裂出第二個箱子。
+                if (FindCrate(colour) != null) continue;
+                if (IsCratePending(colour)) continue;
+
+                SpawnCrateFor(colour);
+            }
+        }
+
+        /// <summary>
+        /// 有沒有人正舉著這個顏色的素材箱等著放下。
+        ///
+        /// **這是「箱子會分裂」那個 bug 的修正點。** 拿起裝備的流程是
+        /// 「Despawn 場上那一個 + 進入放置預覽」，所以舉在手上的期間，
+        /// 箱子在場上是**不存在**的。SyncCrates 每個 tick 都跑，下一個 tick 就會
+        /// 判定「選了這個顏色卻沒有箱子」而補生一個；等玩家把手上那個放下，
+        /// 同色箱子就變成兩個。兩個都是全新的（Remaining = 0、Loaded = false），
+        /// 所以看起來就是「多出一個拿不了東西的箱子」。
+        ///
+        /// 修法是把「在某人手上」也算成存在。放下、取消、甚至玩家中途斷線，
+        /// 都會讓 HasPending 變回 false，該補的下一個 tick 自然會補回來。
+        /// </summary>
+        private static bool IsCratePending(DyeColorType colour)
+        {
+            for (int i = 0; i < PlayerStallAgent.All.Count; i++)
+            {
+                var agent = PlayerStallAgent.All[i];
+                if (agent == null || agent.Object == null || !agent.Object.IsValid) continue;
+                if (!agent.HasPending) continue;
+                if (agent.PendingType != LevelElementType.MaterialCrate) continue;
+                if (agent.PendingVariant == (int)colour) return true;
+            }
+            return false;
+        }
+
+        /// <summary>場上有沒有任何一個素材箱。</summary>
+        public MaterialCrate FindAnyCrate()
+        {
+            for (int i = 0; i < MaterialCrate.All.Count; i++)
+            {
+                var crate = MaterialCrate.All[i];
+                if (crate == null || crate.Object == null || !crate.Object.IsValid) continue;
+                if (IsStallOwned(crate)) return crate;
+            }
+            return null;
+        }
+
+        /// <summary>場上有沒有這個顏色的素材箱。</summary>
+        public MaterialCrate FindCrate(DyeColorType colour)
+        {
+            for (int i = 0; i < MaterialCrate.All.Count; i++)
+            {
+                var crate = MaterialCrate.All[i];
+                if (crate == null || crate.Object == null || !crate.Object.IsValid) continue;
+                if (!IsStallOwned(crate)) continue;
+                if (crate.Color == colour) return crate;
+            }
+            return null;
+        }
+
+        private static bool IsStallOwned(MaterialCrate crate)
+        {
+            var dev = crate.GetComponentInChildren<DeployableDevice>(true);
+            return dev != null && dev.StallOwned;
+        }
+
+        /// <summary>
+        /// 生一個素材箱。位置挑「最靠近背緣的空格」——
+        /// TryFindFree 是從 z=0 開始掃的，而 z=0 就是玩家進場那一側，
+        /// 剛好符合「原料在後場」的空間邏輯。玩家之後可以自己搬到織布機旁邊。
+        /// </summary>
+        private void SpawnCrateFor(DyeColorType colour)
+        {
+            StallGrid.RotatedFootprint(StallCatalog.Footprint(LevelElementType.MaterialCrate),
+                                       (int)StallFacing.North, out int w, out int d);
+
+            if (!BuildOccupancy().TryFindFree(w, d, out int cx, out int cz))
+            {
+                RPC_Notice("襯布上沒有空格可以放素材箱了");
+                return;
+            }
+
+            SpawnDevice(LevelElementType.MaterialCrate, cx, cz, (int)StallFacing.North, 0, (int)colour);
+        }
+
+        /// <summary>開張時每個箱子從背包裝滿。</summary>
+        private int LoadAllCrates()
+        {
+            int total = 0;
+            for (int i = 0; i < MaterialCrate.All.Count; i++)
+            {
+                var crate = MaterialCrate.All[i];
+                if (crate == null || !IsStallOwned(crate)) continue;
+                total += crate.LoadFromStash();
+            }
+            return total;
+        }
+
+        /// <summary>收攤時每個箱子把剩料退回背包。</summary>
+        private int UnloadAllCrates()
+        {
+            int total = 0;
+            for (int i = 0; i < MaterialCrate.All.Count; i++)
+            {
+                var crate = MaterialCrate.All[i];
+                if (crate == null || !IsStallOwned(crate)) continue;
+                total += crate.UnloadToStash();
+            }
+            return total;
         }
 
         // ---------------- 開箱 ----------------
@@ -321,7 +553,7 @@ namespace AlpacasOnFire.Stall
                     Debug.LogWarning($"[擺攤] {rec} 的格子被佔住了，改放到 ({cx},{cz})。");
                 }
 
-                if (!SpawnDevice(rec.DeviceType, cx, cz, rec.Facing, placed)) continue;
+                if (!SpawnDevice(rec.DeviceType, cx, cz, rec.Facing, placed, rec.Variant)) continue;
 
                 occupancy.OccupyFootprint(cx, cz, w, d);
                 placed++;
@@ -338,7 +570,8 @@ namespace AlpacasOnFire.Stall
         }
 
         /// <summary>生成一台裝備到指定格子。只在 StateAuthority 呼叫。</summary>
-        private bool SpawnDevice(LevelElementType type, int cellX, int cellZ, int facing, int popOrder)
+        private bool SpawnDevice(LevelElementType type, int cellX, int cellZ, int facing, int popOrder,
+                                 int variant = 0)
         {
             var prefab = StallCatalog.DevicePrefab(type);
             if (prefab == null)
@@ -353,7 +586,11 @@ namespace AlpacasOnFire.Stall
             var obj = Runner.Spawn(prefab, position, rotation, null, (r, o) =>
             {
                 var dev = o.GetComponentInChildren<DeployableDevice>(true);
-                if (dev != null) dev.MarkDeployed(type, cellX, cellZ, facing, popOrder);
+                if (dev != null) dev.MarkDeployed(type, cellX, cellZ, facing, popOrder, variant);
+
+                // 素材箱的顏色是型別專屬參數，走 variant 帶進來
+                var crate = o.GetComponent<Machines.MaterialCrate>();
+                if (crate != null) crate.SetColor((DyeColorType)variant);
             });
 
             if (obj == null)
@@ -378,6 +615,15 @@ namespace AlpacasOnFire.Stall
             if (!HasStateAuthority || !MatDeployed) return;
 
             suitcase ??= ActiveSuitcase ?? FindSuitcaseNearMat();
+
+            // v6：素材箱剩下的毛退回背包。**一定要排在 Despawn 之前**，
+            // 不然玩家的毛會憑空消失，而且他們會不敢多裝。
+            int returnedWool = 0;
+            if (StallCatalog.Active.SuitcaseIsStash)
+            {
+                returnedWool = UnloadAllCrates();
+                suitcase?.Unlock();
+            }
 
             int saved = SaveLayoutTo(suitcase);
 
@@ -410,7 +656,8 @@ namespace AlpacasOnFire.Stall
             GameAudio.PlayAt(SfxId.StallClose, MatCenter);
 
             Debug.Log($"[擺攤] 收攤完成：記住 {saved} 台的排法、收回裝備 {devices} 台、" +
-                      $"襯布上的物品 {loose} 個、手提箱{(returned ? "回到手上" : "留在地上")}。");
+                      $"退回羊毛 {returnedWool} 份、襯布上的物品 {loose} 個、" +
+                      $"手提箱{(returned ? "回到手上" : "留在地上")}。");
         }
 
         /// <summary>把場上所有裝備的格子與朝向寫回手提箱。</summary>
@@ -535,7 +782,7 @@ namespace AlpacasOnFire.Stall
 
         /// <summary>把一台裝備放進指定格子。只在 StateAuthority 呼叫。</summary>
         public bool TryPlaceDevice(LevelElementType type, int cellX, int cellZ, int facing,
-                                   out PlacementResult reason)
+                                   out PlacementResult reason, int variant = 0)
         {
             reason = ValidateCell(type, cellX, cellZ, facing);
             if (!HasStateAuthority) return false;
@@ -547,7 +794,7 @@ namespace AlpacasOnFire.Stall
                 return false;
             }
 
-            if (!SpawnDevice(type, cellX, cellZ, facing, 0))
+            if (!SpawnDevice(type, cellX, cellZ, facing, 0, variant))
             {
                 reason = PlacementResult.NothingPending;
                 return false;
@@ -569,16 +816,42 @@ namespace AlpacasOnFire.Stall
                 reason = State == StallState.Open ? "已經在營業中" : "結算還沒結束";
                 return false;
             }
-            if (CountDeployed(LevelElementType.DeliveryCounter) == 0)
+            // 缺哪一台由 loadout 決定 —— Classic 要縫紉機、Village 要織布機
+            foreach (var required in StallCatalog.Active.RequiredToOpen)
             {
-                reason = "沒有交貨窗口，客人沒地方付錢";
+                if (CountDeployed(required) > 0) continue;
+                reason = $"沒有{StallCatalog.DisplayName(required)}，" +
+                         (required == LevelElementType.DeliveryCounter
+                             ? "客人沒地方付錢" : "做不出衣服");
                 return false;
             }
-            if (CountDeployed(LevelElementType.SewingMachine) == 0)
+
+            // v6：手提箱兼料倉，沒選材料就開張等於空手做生意
+            if (StallCatalog.Active.SuitcaseIsStash)
             {
-                reason = "沒有縫紉機，做不出衣服";
-                return false;
+                var suitcase = ActiveSuitcase;
+                if (suitcase == null)
+                {
+                    reason = "找不到手提箱";
+                    return false;
+                }
+                if (suitcase.SelectedCount == 0)
+                {
+                    reason = "還沒選材料 —— 對手提箱按右鍵選顏色";
+                    return false;
+                }
+                if (suitcase.SelectedStashTotal() == 0)
+                {
+                    reason = "選的顏色背包裡都沒有存量";
+                    return false;
+                }
+                if (FindAnyCrate() == null)
+                {
+                    reason = "素材箱還沒生出來，等一下";
+                    return false;
+                }
             }
+
             return true;
         }
 
@@ -615,6 +888,18 @@ namespace AlpacasOnFire.Stall
             RoundMissed = 0;
             RoundRevenue = 0;
 
+            // run 模式才有門檻。0 代表「沒有門檻」，後面的達標判定一律放行 ——
+            // 這就是 Stall_Test 能繼續無限輪次玩下去的原因。
+            RoundTarget = _runMode ? GameTuning.StallTargetFor(CurrentRound) : 0;
+
+            // v6：每個素材箱從背包把自己那個顏色的存量整批裝滿，此後鎖定
+            if (StallCatalog.Active.SuitcaseIsStash)
+            {
+                ActiveSuitcase?.Lock();
+                int loaded = LoadAllCrates();
+                Debug.Log($"[v6] 開張：素材箱共裝載 {loaded} 份羊毛。");
+            }
+
             SetState(StallState.Open);
             OrderBoard.Instance?.ResetSpawnSchedule();
             LevelDirector.Instance?.BeginStallRound(GameTuning.StallDurationSeconds);
@@ -629,16 +914,29 @@ namespace AlpacasOnFire.Stall
             int revenue = director != null ? director.Money : 0;
 
             RoundRevenue = revenue;
+
+            // **沒達標也照樣入帳。** 賺到的錢是真的賺到了，結算畫面才能誠實地
+            // 顯示「你差了多少」—— 把錢沒收會讓那個數字變得沒有意義。
             Capital += revenue;
             RoundsCompleted++;
 
+            // 沒有門檻（RoundTarget = 0 / 非 run 模式）就一律算過。
+            bool passed = !_runMode || revenue >= RoundTarget;
+            if (passed) CurrentRound++;
+
             OrderBoard.Instance?.ClearAllOrders();
-            SetState(StallState.Settling);
+            SetState(passed ? StallState.Settling : StallState.RunOver);
             GameAudio.PlayAt(SfxId.BusinessClose, MatCenter);
-            RPC_RoundSettled(revenue, RoundDeliveries, RoundMissed, Capital);
+            RPC_RoundSettled(revenue, RoundDeliveries, RoundMissed, Capital, RoundTarget, passed);
         }
 
-        /// <summary>結算畫面關掉之後回到 Exploring（攤位還在地上，可以繼續搬或收攤）。</summary>
+        /// <summary>
+        /// 結算畫面關掉之後回到 Exploring（攤位還在地上，可以繼續搬或收攤）。
+        ///
+        /// **RunOver 時什麼都不做** —— 那個 State 檢查就是擋這件事的：
+        /// 這一局已經結束了，關掉結算畫面不該讓人若無其事地回去繼續擺攤。
+        /// 想再來一次目前要重開場景（重開選單留給下一批）。
+        /// </summary>
         public void DismissSettlement()
         {
             if (!HasStateAuthority) return;
@@ -671,9 +969,10 @@ namespace AlpacasOnFire.Stall
         }
 
         [Rpc(RpcSources.StateAuthority, RpcTargets.All)]
-        private void RPC_RoundSettled(int revenue, int deliveries, int missed, int capital)
+        private void RPC_RoundSettled(int revenue, int deliveries, int missed, int capital,
+                                      int target, NetworkBool passed)
         {
-            OnRoundSettled?.Invoke(revenue, deliveries, missed, capital);
+            OnRoundSettled?.Invoke(revenue, deliveries, missed, capital, target, passed);
         }
 
         /// <summary>給本機呼叫的提示（不需要走網路的那種）。</summary>

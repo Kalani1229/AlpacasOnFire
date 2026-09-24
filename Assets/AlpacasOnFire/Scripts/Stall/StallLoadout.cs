@@ -1,0 +1,134 @@
+using AlpacasOnFire.Core;
+
+namespace AlpacasOnFire.Stall
+{
+    /// <summary>
+    /// 手提箱裡帶什麼。兩套並存 —— 這是「新場景不會弄壞舊場景」的第一道接縫。
+    ///
+    /// `Classic` 的內容跟拆分前**一字不差**，而 `StallCatalog.Active` 的預設值就是它，
+    /// 所以什麼都不設定時（例如 Stall_Test）行為完全不變。
+    /// 只有 Village 場景的建置器會把 StallManager 的 `_villageLoadout` 勾起來。
+    /// </summary>
+    public sealed class StallLoadout
+    {
+        public readonly string Name;
+
+        /// <summary>開箱時會全部彈出來的裝備。</summary>
+        public readonly LevelElementType[] Devices;
+
+        /// <summary>第一次開箱用的排法。</summary>
+        public readonly StallSlotRecord[] DefaultLayout;
+
+        /// <summary>少了這些就不能開張（賣不出東西 / 做不出東西）。</summary>
+        public readonly LevelElementType[] RequiredToOpen;
+
+        /// <summary>手提箱要不要當料倉用（v6 才有；Classic 的素材是場上的染料點）。</summary>
+        public readonly bool SuitcaseIsStash;
+
+        private StallLoadout(string name, LevelElementType[] devices, StallSlotRecord[] layout,
+                             LevelElementType[] required, bool suitcaseIsStash)
+        {
+            Name = name;
+            Devices = devices;
+            DefaultLayout = layout;
+            RequiredToOpen = required;
+            SuitcaseIsStash = suitcaseIsStash;
+        }
+
+        // ================= Classic（拆分前的原樣，不要改）=================
+
+        /// <summary>
+        /// Stall_Test 用的那一套。內容照抄拆分前的 `StallCatalog.Devices` 與 `DefaultLayout`，
+        /// **一個值都不要動** —— 這是回歸測試的對照組。
+        /// </summary>
+        public static readonly StallLoadout Classic = new(
+            "Classic",
+            new[]
+            {
+                LevelElementType.ToolRackShears,
+                LevelElementType.SewingMachine,
+                LevelElementType.Juicer,
+                LevelElementType.Mannequin,
+                LevelElementType.DeliveryCounter,
+                LevelElementType.Conveyor,
+                LevelElementType.Conveyor,
+            },
+            new[]
+            {
+                StallSlotRecord.Create(LevelElementType.DeliveryCounter,  3, 6, (int)StallFacing.North),
+                StallSlotRecord.Create(LevelElementType.Conveyor,         3, 5, (int)StallFacing.North),
+                StallSlotRecord.Create(LevelElementType.Conveyor,         3, 4, (int)StallFacing.North),
+                StallSlotRecord.Create(LevelElementType.SewingMachine,    3, 3, (int)StallFacing.North),
+                StallSlotRecord.Create(LevelElementType.ToolRackShears,   3, 2, (int)StallFacing.North),
+                StallSlotRecord.Create(LevelElementType.Juicer,           2, 3, (int)StallFacing.East),
+                StallSlotRecord.Create(LevelElementType.Mannequin,        5, 3, (int)StallFacing.North),
+            },
+            new[]
+            {
+                LevelElementType.DeliveryCounter,
+                LevelElementType.SewingMachine,
+            },
+            suitcaseIsStash: false);
+
+        // ================= Village（v6 羊駝村）=================
+
+        /// <summary>
+        /// v6 的內容。沒有剃毛器架（剃毛器改成 E 鍵隨身工具）、
+        /// 沒有果汁機與人偶（v6 沒有染色這條線）、也沒有素材箱
+        /// （素材出口整合進手提箱本身，見 V6_WOOL_ECONOMY.md）。
+        ///
+        /// 兩台織布機，一台織 T-shirt、一台織襯衫。一台機器只做一種版型，
+        /// 所以「要接哪些版型的單」變成佈置時的取捨，不是白拿的。
+        ///
+        /// 加入紡線機之後產線變成三段，預設佈局由南往北就是生產順序：
+        ///
+        ///     z=6                   [交貨窗口]
+        ///     z=5                   [輸送帶↑]
+        ///     z=4                   [輸送帶↑]
+        ///     z=3   [襯衫織布機]    [T恤織布機]
+        ///     z=2                   [紡線機]
+        ///            x=2             x=3
+        ///
+        /// **紡線機刻意不跟任何一條輸送帶正交相鄰。** 它本來就沒有自動出貨
+        /// （見 SpinningMachine.TryTakeOutput 的註解），但排在輸送帶旁邊會讓玩家
+        /// 誤以為它會自己送 —— 看起來會自動的東西卻不會動，比明擺著要手拿更難懂。
+        ///
+        /// **只有 T恤織布機接得到輸送帶**（它在 x=3 這條線上）。襯衫織布機的成品
+        /// 要玩家自己拿去交貨窗口，或者丟到輸送帶上。這是刻意留的不對稱 ——
+        /// 預設佈局不該是最佳解，玩家把兩台對調、或自己補一條輸送帶都是有意義的決定。
+        ///
+        /// 手提箱固定在襯布背緣外（不佔格子），玩家從素材箱拿料、走到紡線機按住紡成線、
+        /// 再送到織布機，成品上輸送帶送到交貨窗口。
+        /// </summary>
+        public static readonly StallLoadout Village = new(
+            "Village",
+            new[]
+            {
+                LevelElementType.SpinningMachine,
+                LevelElementType.WeavingMachine,
+                LevelElementType.WeavingMachineShirt,
+                LevelElementType.DeliveryCounter,
+                LevelElementType.Conveyor,
+                LevelElementType.Conveyor,
+            },
+            new[]
+            {
+                StallSlotRecord.Create(LevelElementType.DeliveryCounter,     3, 6, (int)StallFacing.North),
+                StallSlotRecord.Create(LevelElementType.Conveyor,            3, 5, (int)StallFacing.North),
+                StallSlotRecord.Create(LevelElementType.Conveyor,            3, 4, (int)StallFacing.North),
+                StallSlotRecord.Create(LevelElementType.WeavingMachine,      3, 3, (int)StallFacing.North),
+                StallSlotRecord.Create(LevelElementType.WeavingMachineShirt, 2, 3, (int)StallFacing.North),
+                StallSlotRecord.Create(LevelElementType.SpinningMachine,     3, 2, (int)StallFacing.North),
+            },
+            new[]
+            {
+                LevelElementType.DeliveryCounter,
+                // 沒有紡線機就沒有絲線，織布機連第一份料都收不到 ——
+                // 讓它擋在開張前面，比讓玩家開張之後才發現做不出東西好。
+                LevelElementType.SpinningMachine,
+                LevelElementType.WeavingMachine,
+                LevelElementType.WeavingMachineShirt,
+            },
+            suitcaseIsStash: true);
+    }
+}

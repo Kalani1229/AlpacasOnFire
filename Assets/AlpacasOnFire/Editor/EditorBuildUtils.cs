@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.IO;
+using System.Reflection;
 using UnityEditor;
 using UnityEngine;
 
@@ -146,13 +147,48 @@ namespace AlpacasOnFire.EditorTools
             so.ApplyModifiedPropertiesWithoutUndo();
         }
 
-        public static void SetEnum(Object target, string field, int value)
+        /// <summary>
+        /// 設定列舉欄位。**參數是列舉的「值」，不是宣告順序的索引。**
+        ///
+        /// 這裡有一個很容易踩的坑：`SerializedProperty.enumValueIndex` 要的是
+        /// 「這個成員在列舉裡排第幾個」，而所有呼叫端寫的都是 `(int)SomeEnum.Member`
+        /// ——也就是值。連號的列舉（0,1,2,3…）兩者剛好相等，所以長期沒發作；
+        /// 但只要列舉中間有成員被刪掉、或有人手動指定跳號，值就不再等於索引，
+        /// 會丟出「enum index is out of range」。
+        ///
+        /// 實際踩到的案例：ItemKind 的 SprayGun 被移除之後，Suitcase 的值還是 10，
+        /// 但它已經變成第 9 個成員了。
+        ///
+        /// 所以這裡用反射查出欄位的列舉型別，把值轉成索引再寫入。
+        /// 對既有呼叫端來說行為完全不變（它們的列舉都是連號的）。
+        /// </summary>
+        public static void SetEnum(Object target, string field, int enumValue)
         {
             var so = new SerializedObject(target);
             var p = so.FindProperty(field);
             if (p == null) { Debug.LogWarning($"[Builder] {target.GetType().Name} 找不到欄位 {field}"); return; }
-            p.enumValueIndex = value;
+
+            p.enumValueIndex = EnumValueToIndex(target, field, enumValue);
             so.ApplyModifiedPropertiesWithoutUndo();
+        }
+
+        /// <summary>列舉的值 -> 宣告順序的索引。查不到型別就原樣回傳（退回舊行為）。</summary>
+        private static int EnumValueToIndex(Object target, string field, int enumValue)
+        {
+            // 欄位可能宣告在基底類別（例如 _kind 在 CarriableItem 上，
+            // 但 target 是 SuitcaseItem），GetField 預設不會往上找，要自己走繼承鏈
+            FieldInfo info = null;
+            for (var t = target.GetType(); t != null && info == null; t = t.BaseType)
+                info = t.GetField(field, BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public);
+
+            if (info == null || !info.FieldType.IsEnum) return enumValue;
+
+            var values = System.Enum.GetValues(info.FieldType);
+            for (int i = 0; i < values.Length; i++)
+                if (System.Convert.ToInt64(values.GetValue(i)) == enumValue) return i;
+
+            Debug.LogWarning($"[Builder] {info.FieldType.Name} 裡找不到值 {enumValue}，退回第一個成員。");
+            return 0;
         }
 
         public static void SetFloat(Object target, string field, float value)

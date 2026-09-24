@@ -43,9 +43,31 @@ namespace AlpacasOnFire.Core
         // 平視丟出時的水平射程約 7.8 公尺 ＝ 襯布網格 5 格多一點。
         // 速度拉高、上拋比例壓低 —— 射程一樣但飛得又快又平（滯空 0.5 秒，原本 0.62 秒）。
         // 平一點也比較好瞄準機台，扔進機台才有機會成功。
-        public const float ThrowSpeed          = 16f;    // m/s
+        public const float ThrowSpeed          = 16f;    // m/s（蓄滿力的初速）
         public const float ThrowUpwardRatio    = 0.18f;  // 往上加的比例
         public const float ThrowGravity        = 20f;
+
+        // ---------- Q：點按放下、長按蓄力丟出 ----------
+        //
+        // 同一個鍵做兩件事，靠「按多久」分開：
+        //   按一下就放 -> 放下（掉在腳邊）
+        //   按住再放開 -> 丟出，蓄多久就飛多遠
+        //
+        // 為什麼不拆成兩個鍵：放下與丟出是同一個意圖（我不要這個東西了）的
+        // 兩種力道，綁在同一個鍵上，手比較不用記東西。
+
+        /// <summary>按不到這麼久就算「點按」＝放下。太長會讓放下變得遲鈍。</summary>
+        public const float ThrowTapSeconds     = 0.12f;
+
+        /// <summary>沒蓄滿力的最低初速。**蓄一點點也丟得出去，只是很近。**</summary>
+        public const float ThrowSpeedMin       = 5f;
+
+        // 蓄滿力需要的時間 ＝ 道具的重量。輕的東西幾乎不用蓄，重的要站著舉。
+        // 這是「拿著重物就不能靈活行動」這條規則的時間版本。
+        public const float ThrowChargeLight    = 0.15f;  // 羊毛、染料、飾品 —— 幾乎瞬間
+        public const float ThrowChargeMedium   = 0.5f;   // 衣服、箱子、工具
+        public const float ThrowChargeHeavy    = 1.1f;   // 手提箱
+        public const float ThrowChargeTruck    = 2f;     // 卡車
         // 接住分兩層：
         //  自動 —— 空手 + 大致面向 + 小範圍，什麼都不用按
         //  主動 —— 按接住鍵（Space／左鍵），範圍大一點、也不要求面向，
@@ -61,6 +83,24 @@ namespace AlpacasOnFire.Core
         public const int   FleeceMax           = 3;      // 每隻羊駝身上最多 3 份毛
         public const float FleeceRegenSeconds  = 6f;     // 每 6 秒長回 1 份
         public const int   WoolPerShear        = 1;      // 每次剃毛掉 1 顆羊毛
+
+        // 剃毛器伸出來多久。它不是道具、沒有攜帶狀態，只是動作的一個瞬間，
+        // 所以要短到像揮一下、又長到看得見。
+        public const float ShearVisualSeconds  = 0.35f;
+
+        // ---------- 角色動畫 ----------
+
+        /// <summary>
+        /// 水平速度超過這個值就播 Run。
+        ///
+        /// 調高 -> 慢速移動時播 Idle，看起來像滑步。
+        /// 調低 -> 被擊退、被推擠時也會播 Run，看起來像鬼壓床。
+        /// 0.6 是「明顯在走」的下限（玩家全速是 5）。
+        /// </summary>
+        public const float AnimRunThreshold    = 0.6f;
+
+        /// <summary>Work 動畫播多久。比剃毛器伸出來（0.35）稍長，動作才收得完。</summary>
+        public const float WorkAnimSeconds     = 0.45f;
 
         // ---------- 縫紉機 ----------
         public const int   SewingWoolRequired  = 1;      // 1 份羊毛 = 1 件衣服
@@ -145,7 +185,17 @@ namespace AlpacasOnFire.Core
         public const float StallDeployDuration     = 0.0f;   // 擺放／收回耗時（0 = 瞬間，先不做長按）
         public const float StallCollectRadius      = 1.2f;   // 收攤時清除襯布上物品的額外邊界
         /// <summary>擺攤期間玩家能走出襯布邊緣多遠。襯布 + 這個邊界＝「擺攤區域」。</summary>
+        // 擺攤期間的空氣牆已經移除，這個邊界值目前沒有人在用。
+        // 留著是因為它是「攤位範圍」的定義之一，之後要做「走太遠就自動收攤」
+        // 或是攤位地面的視覺範圍時會再用到。
         public const float StallZoneMargin         = 2.5f;
+
+        // ---------- 第一人稱（Tab 切換）----------
+        //
+        // 鏡頭從 HeadAnchor 再往前推一點點。0 的話鏡頭正好在頭的中心，
+        // 近裁切面會切進自己的鼻子（Snout 那塊方塊）；推出去一點就乾淨了。
+        // 推太多又會變成「靈魂出竅」，走到牆邊會穿牆，所以只推一點。
+        public const float FirstPersonForward      = 0.32f;
 
         // ---------- 開箱彈出動畫（純本機視覺，不同步）----------
         public const float StallPopDuration        = 0.35f;  // 單台裝備彈出的時間
@@ -181,6 +231,169 @@ namespace AlpacasOnFire.Core
         public const float StallDurationSeconds    = 180f;   // 一場營業 3 分鐘（＝ LevelDurationSeconds）
         public const int   StallStartingCapital    = 0;      // 資本額起始值
 
+        // ================= v6 羊駝村（以上既有數值一個都沒有改）=================
+
+        // ---------- 會走動的羊毛 NPC ----------
+        public const float NpcWanderSpeed        = 1.6f;   // 閒晃速度 m/s
+        public const float NpcWanderRadius       = 18f;    // 以出生點為圓心的活動範圍
+        public const float NpcWanderPauseMin     = 1.5f;   // 走到目標後站著發呆的最短時間
+        public const float NpcWanderPauseMax     = 4f;
+        public const float NpcFleeSpeed          = 4.5f;   // 被剃之後逃跑速度（比玩家的 5.0 慢一點，追得到）
+        public const float NpcFleeSeconds        = 4f;
+        public const int   NpcFleeceMax          = 3;      // 身上最多 3 份毛
+        public const float NpcFleeceRegenSeconds = 8f;     // 每 8 秒長回 1 份
+        public const float NpcShearRange         = 2.2f;   // 剃毛的互動距離
+        public const float NpcArriveThreshold    = 0.6f;   // 走到多近算抵達目標點
+        public const float NpcGravity            = 20f;    // 給 NetworkCharacterController 用
+
+        // ---------- 惡搞系統 ----------
+        //
+        // 三個道具 = 對付「羊會跑」的三種解法：強攻（暈）／驅趕（推）／潛行（矇眼）。
+        // 數值的原則：**失控要短**。笑點在爬起來的過程，不在被按在地上的那段。
+        // 一秒上下就夠了 —— 再長就從惡搞變成霸凌，被害者會開始生氣而不是笑。
+
+        /// <summary>口水：視覺干擾持續多久。比失控長很多，因為它不剝奪控制權。</summary>
+        public const float SpitBlindSeconds     = 4f;
+
+        /// <summary>
+        /// 口水的冷卻。它是羊駝自帶的能力、不消耗任何東西，
+        /// 沒有冷卻就會變成按住不放的機槍，被害者永遠看不見畫面 ——
+        /// 那就不是惡搞而是單方面壓制了。
+        /// </summary>
+        public const float SpitCooldownSeconds  = 1.2f;
+
+        /// <summary>
+        /// 大蔥：擊退的初速與衰減時間。
+        /// 9 推起來太軟、看不出被打到，加倍成 18 —— 現在是真的會被撞飛一段。
+        /// 時間不動：要的是「一下子推很遠」而不是「被推著走很久」。
+        /// </summary>
+        public const float LeekKnockbackSpeed   = 18f;
+        public const float LeekKnockbackSeconds = 0.35f;
+
+        /// <summary>大蔥：被打到的人螢幕震一下的時間。</summary>
+        public const float LeekShakeSeconds     = 0.25f;
+
+        /// <summary>大蔥：揮一次的動作長度。要短，連打才順。</summary>
+        public const float LeekSwingSeconds     = 0.28f;
+
+        // ---- 口水（投射物）----
+        //
+        // 口水改成看得見的投射物之後，就變成一個**需要瞄準**的能力：
+        // 噴出去要時間、會掉、會落空。原本「按了就中」太無腦了。
+
+        /// <summary>
+        /// 口水的初速。原本 13 噴出去軟趴趴、還沒到人就掉了，直接加到五倍。
+        /// 65 比丟東西（16）快四倍，幾乎是直線 —— 現在它是「射」出去的。
+        ///
+        /// **這個數字快到會影響命中判定**：一個 tick 走 1.08 公尺，比命中半徑
+        /// （0.55）大，用單點檢查會直接跨過目標。所以 SpitProjectile 的人身判定
+        /// 是沿路徑掃過去的（SphereCast），不是在終點檢查一次。
+        /// </summary>
+        public const float SpitSpeed            = 65f;
+
+        /// <summary>口水的重力。比一般物品輕，飛得比較直。</summary>
+        public const float SpitGravity          = 7f;
+
+        /// <summary>口水的命中半徑。做得寬鬆一點，不然瞄準會太難。</summary>
+        public const float SpitHitRadius        = 0.55f;
+
+        /// <summary>口水最多飛多久。超時就自己消失，不會留在場上。</summary>
+        public const float SpitLifeSeconds      = 1.6f;
+
+        // ---- 卡車（投擲物）----
+        //
+        // 卡車沒有自己的蓄力與初速數值 —— 它走的是所有可丟物共用的 Q 蓄力
+        // （ThrowChargeTruck / ThrowSpeedMin / ThrowSpeed），只是重量特別大。
+        // 它獨有的只有「落地會爆」這件事。
+
+        /// <summary>卡車落地爆炸的波及半徑。</summary>
+        public const float TruckBlastRadius     = 3.4f;
+
+        /// <summary>爆炸動畫演多久，演完卡車就消失。</summary>
+        public const float TruckBlastSeconds    = 0.45f;
+
+        /// <summary>
+        /// 卡車：砸中之後失控多久。
+        ///
+        /// 原本是 1.1 秒（「失控要短」）。加了 ragdoll 之後調成 4 秒 ——
+        /// 1.1 秒塞不下「癱軟 -> 掙扎 -> 站回」三段，站起來那段只剩 0.3 秒左右，
+        /// 而笑點正好在站起來那一段。**代價是被砸中的人真的會有 4 秒不能動。**
+        ///
+        /// ragdoll 的總長度跟著這個值走（讀的是同步的 StaggerTimer），
+        /// 所以「看起來爬起來了」和「可以動了」永遠是同一刻。
+        /// </summary>
+        public const float TruckStaggerSeconds  = 4f;
+
+        /// <summary>卡車：砸中時附帶的擊退（比大蔥弱，主要的效果是倒地）。</summary>
+        public const float TruckKnockbackSpeed  = 4f;
+
+        /// <summary>惡搞道具的作用距離。比一般互動（2.5）遠一點，追著打才追得到。</summary>
+        public const float PrankRange           = 3.2f;
+
+        /// <summary>被打倒時，毛散落的半徑。</summary>
+        public const float KnockdownWoolSpread  = 1.2f;
+
+        /// <summary>螢幕震動的位移幅度（公尺）。只動位置不動旋轉，準心不會飄。</summary>
+        public const float CameraShakeAmplitude = 0.09f;
+
+        // ---- 倒地時鏡頭跟著倒 ----
+        //
+        // 只轉**鏡頭的旋轉**，不動鏡頭的位置 —— 位置照常跟著角色。
+        // 連位置一起繞的話，第三人稱下鏡頭會整個甩到側邊，那就不是「我倒了」
+        // 而是「有人把攝影機扔出去了」。
+        //
+        // 倒下快、爬起來慢，跟身體的翻倒同一個節奏：笑點在爬起來的過程。
+        public const float StaggerCameraRoll      = 68f;   // 側翻角度
+        public const float StaggerCameraPitch     = 22f;   // 順便往下看一點，像臉貼著地
+        public const float StaggerCameraFallSpeed = 5.5f;  // 每秒的比例變化（倒下）
+        public const float StaggerCameraRiseSpeed = 1.6f;  // 每秒的比例變化（爬起來）
+
+        /// <summary>視覺干擾最濃的時候，畫面被蓋掉多少（0~1）。刻意不到全黑。</summary>
+        public const float BlindMaxOpacity      = 0.82f;
+
+        // ---------- 全隊共用背包 ----------
+        // 每種顏色各自的上限（不是總量）。滿了就整筆拒收，毛留在動物身上。
+        public const int   StashCapacityPerColor = 16;
+
+        // ---------- 素材箱 ----------
+        // 沒有「一箱幾份」的上限：開張時該色背包有多少就裝多少。
+        // 這個值只是剩餘量條的滿格參考，不是容量限制。
+        public const int   CrateFillBarReference = 12;
+
+        // ---------- 織布機（批 B）----------
+        // 織布機是一道**限時決策**：放下第一份毛就開始織，想做雙色的話
+        // 第二份毛必須在單色織完之前送到。所以雙色秒數一定要大於單色，
+        // 這是玩法前提，不是可調的美術數字。
+        public const float WeaveSingleSeconds    = 4f;   // 單色衣服
+        public const float WeaveDoubleSeconds    = 7f;   // 雙色衣服
+        public const int   WeaveMaxWool          = 2;
+
+        // 換目標時長時，剩餘時間的下限。
+        // 沒有這個下限的話，「剛好在最後一瞬間塞進第二份毛」會變成瞬間完成，
+        // 玩家看不到那件衣服是怎麼變成雙色的。
+        public const float WeaveRetargetFloor    = 0.2f;
+
+        // ---------- 顧客（批 B）----------
+        public const int   CustomerMaxConcurrent   = 3;
+        public const float CustomerPatienceSeconds = 45f;
+        public const float CustomerIntervalSeconds = 12f;
+        public const float CustomerWalkSpeed       = 2.2f;
+        public const int   CustomerLeavePenalty    = 30;   // 等太久走掉的扣款
+
+        /// <summary>
+        /// 羊毛價格。衣服售價 = 主色 + 點綴色相加；單色衣服就只算一份。
+        /// 集中在這裡，不要散到各處去。
+        /// </summary>
+        public static int WoolPrice(DyeColorType c) => c switch
+        {
+            DyeColorType.White  => 10,
+            DyeColorType.Yellow => 15,
+            DyeColorType.Green  => 20,
+            DyeColorType.Blue   => 30,
+            DyeColorType.Red    => 45,
+            _                   => 10,
+        };
+
         public static int StarsFor(int money)
         {
             if (money >= Star3Threshold) return 3;
@@ -188,5 +401,140 @@ namespace AlpacasOnFire.Core
             if (money >= Star1Threshold) return 1;
             return 0;
         }
+
+        // ---------- run 循環（v6）----------
+        //
+        // 每輪有營收門檻，沒達標 run 就結束。門檻逐輪上升，所以一定會有撐不住的那一輪 ——
+        // 「這一局能走多遠」取代了「無限輪次」。
+        //
+        //   輪次    1    2    3    4    5    6     7
+        //   門檻  120  174  252  366  530  769  1115
+        //
+        // 一件衣服值 20–90（主色 + 點綴色），3 分鐘大概做得完 5–10 件，
+        // 所以一輪的合理營收是 150–600 —— 第 6、7 輪會超過物理產能，
+        // 一個 run 落在 30–45 分鐘。
+        //
+        // **這兩個數字一定會再調**，所以留成常數、曲線用算的，不要寫死成表。
+        public const int   StallTargetBase   = 120;   // 第 1 輪的門檻
+        public const float StallTargetGrowth = 1.45f; // 每輪乘這個倍率
+
+        /// <summary>第 round 輪（從 1 開始）的營收門檻。</summary>
+        public static int StallTargetFor(int round)
+            => Mathf.RoundToInt(StallTargetBase * Mathf.Pow(StallTargetGrowth, Mathf.Max(0, round - 1)));
+
+        // ---------- 紡線機 ----------
+        //
+        // 這台機器的特別之處是**有人必須待在原地**。其他機台都是射後不理，
+        // 紡線是反過來的：放進去之後要有人按著不放，機器才會轉。
+        //
+        // 3.5 秒是**刻意比織布的 7 秒短的**。主動按著等，比放著不管難熬得多 ——
+        // 體感上按住 3.5 秒約等於放著等 7 秒。兩個都設 7 秒的話紡線會非常煩。
+        public const float SpinSeconds   = 3.5f;  // 按住多久紡完一份
+        public const float SpinHoldRange = 2.5f;  // 超過這個距離就中斷（＝ InteractRange）
+
+        // ---------- 大動物（批 1）----------
+        //
+        // 核心規則只有一條：**牠永遠往「離最近的玩家最遠」的方向跑。**
+        // 難度曲線是這條規則自己長出來的，沒有任何難度設定：
+        //   一個人 -> 牠永遠背對你而且比你快，抓不到是正確的
+        //   兩個人 -> 站兩側，牠往 A 跑就被 B 逼回來
+        //   四個人 -> 切斷退路，很快逼到角落
+        public const int   BeastFleece          = 9;     // 身上的毛，一次全掉
+        public const float BeastGrazeSpeed      = 1.2f;  // 吃草閒晃
+        public const float BeastFleeSpeed       = 6.5f;  // 逃跑（玩家是 5.0，追不上是刻意的）
+        public const float BeastStareRadius     = 12f;   // 進到這裡牠會停下來盯著你
+        public const float BeastAlertRadius     = 10f;   // 進到這裡牠開始逃
+        public const float BeastTerritoryRadius = 40f;   // 不會離開領域
+        public const float BeastShearRange      = 2.5f;  // 剃毛距離（＝ InteractRange）
+        public const float BeastFleeMinSeconds  = 1.5f;  // 至少逃這麼久，不會你一退牠就停
+        public const float BeastArriveThreshold = 1.2f;
+        public const float BeastGravity         = 20f;
+
+        /// <summary>剃完之後強制逃跑的時間 —— 要真的跑掉，不是原地繼續被圍。</summary>
+        public const float BeastShearedFleeSeconds = 5f;
+
+        // 逃跑方向的取樣。**不要用「直接取反方向」** —— 那會在領域邊界與牆壁上卡死。
+        public const int   BeastDirectionSamples = 16;   // 繞一圈取幾個方向
+        public const float BeastLookaheadSeconds = 1.0f; // 評分時往前推算多久
+        public const float BeastObstacleProbe    = 3.5f; // 方向上多近有障礙就淘汰
+
+        /// <summary>方向重算的間隔。每個 tick 重算會抖，中間沿用上次的方向。</summary>
+        public const float BeastRethinkSeconds   = 0.25f;
+
+        /// <summary>
+        /// 第二近玩家的獎勵權重。
+        ///
+        /// **少了這一項，牠會直直撞進第二個玩家懷裡**，夾擊變得太容易。
+        /// 加了之後兩個人必須真的站對位置才夾得到。
+        /// </summary>
+        public const float BeastSecondPlayerWeight = 0.3f;
+
+        /// <summary>
+        /// 預測點下方要探多深才算「有地面」。
+        ///
+        /// 這條不在原始規格裡，是我補的：目前的地圖只有 60x60 的地板，
+        /// 而領域半徑是 40 —— 領域比地板大，光靠領域檢查擋不住牠跑出地板邊緣摔下去。
+        /// 有正式地形（有牆）之後這條就只是多一層保險。
+        /// </summary>
+        public const float BeastGroundProbe      = 4f;
+
+        // ---------- 倒地 ragdoll（純視覺）----------
+        //
+        // **這一整塊都是本機視覺，不進網路狀態。** Unity 的 PhysX 跨機器不是決定性的，
+        // 而 Fusion 會重模擬過去的 tick —— 十幾個關節每重跑一次就多一點誤差，
+        // 幾秒內各端就會各自飛走。所以 ragdoll 全部跑在 Render()，各端自己演自己的。
+        //
+        // 笑點在爬起來，不在倒下。倒下只有半秒，爬起來那一段才是所有梗的來源，
+        // 所以 spring 不是線性回升，而是「癱軟 -> 掙扎 -> 站回」三段。
+        //
+        // **這些是出廠值，執行時讀的是 RagdollProfile 資產上的同名欄位。**
+        // 手感一定要邊看邊調，常數每改一次都要重新編譯，所以實際調整請到
+        // Assets/AlpacasOnFire/Resources/RagdollProfile —— Play 中改，下一次倒地就生效。
+        // 改這裡只會影響「新建立的」profile。
+        public const float RagdollLimpSeconds    = 0.5f;   // 完全癱軟，spring = 0
+        public const float RagdollStruggleSpring = 0.6f;   // 掙扎階段的力道比例（撐得起來但撐不直）
+        public const float RagdollBlendBackTime  = 0.35f;  // 可見骨架從 ragdoll 姿勢混回動畫姿勢
+        public const float RagdollMaxSpring      = 3000f;  // 站直時的 slerpDrive.positionSpring
+        public const float RagdollMaxForce       = 1000f;  // slerpDrive.maximumForce
+        public const float RagdollLeashRadius    = 1.5f;   // 骨盆離膠囊最遠多少
+
+        /// <summary>
+        /// 三個階段在整段倒地時間裡的分配。
+        ///
+        /// **為什麼不是直接寫死 0.5 / 1.5 這兩個絕對秒數**（原規格是那樣寫的）：
+        /// 寫這段時 `TruckStaggerSeconds` 是 **1.1 秒**（現在已調成 4 秒），比規格假設的長度短。
+        /// 照絕對秒數實作的話，掙扎階段還沒跑完玩家就已經可以動了 ——
+        /// 也就是「站回」那一段根本不會出現，而那一段正是笑點收尾的地方。
+        ///
+        /// 所以改成：癱軟取絕對值（但不超過整段的 LimpMaxShare），
+        /// 剩下的時間再照固定比例切成掙扎與站回。這樣無論倒地多久，
+        /// 三段的形狀都在，而且**結束的那一刻永遠等於可以操作的那一刻**。
+        ///
+        /// 之後把 TruckStaggerSeconds 調長到 2 秒左右，這裡不用改就會自動接近原規格。
+        /// </summary>
+        public const float RagdollLimpMaxShare     = 0.40f; // 癱軟最多佔整段的四成
+        public const float RagdollStruggleShare    = 0.55f; // 癱軟之後，掙扎佔剩餘的比例
+
+        /// <summary>
+        /// 把骨盆扶正的彈簧（單位 1/s²，跟質量無關）。
+        ///
+        /// 關節的 spring 只能把四肢伸直，**沒有東西會讓整隻翻回正面** ——
+        /// 少了這股力，恢復階段會是「腿伸直了、身體還側躺著」。
+        ///
+        /// 掙扎階段乘 0.6 之後，骨盆會被重力往下拉 g / k ≈ 0.2 公尺，
+        /// 那個下垂就是「想站起來但撐不直」。調大 = 站得更快更挺；調小 = 掙扎更久。
+        /// </summary>
+        public const float RagdollHipsSpring       = 80f;
+
+        /// <summary>
+        /// 倒地時鏡頭要不要跟著側翻（StaggerCameraPitch / Roll 那組）。
+        ///
+        /// 有 ragdoll 之後先關掉：身體已經在倒了，鏡頭再刻意翻一次會搶戲，
+        /// 而且第三人稱下會看不清楚自己是怎麼摔的。那組角度與速度的數值原封不動，
+        /// 改回 true 就恢復原本的效果。
+        /// </summary>
+        // static readonly 而不是 const：const false 會讓編譯器把後面的程式碼判成
+        // 「永遠跑不到」並吼一排 CS0162 警告
+        public static readonly bool StaggerCameraTilt = false;
     }
 }

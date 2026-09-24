@@ -69,6 +69,7 @@ namespace AlpacasOnFire.Machines
             if (Processing || ctx.HeldKind != ItemKind.Wool) return;
 
             ctx.Player.Carry.ConsumeHeld();
+            ctx.Player.TriggerWork();   // 放入羊毛算「在工作」
             InsertWool();
         }
 

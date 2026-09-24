@@ -568,6 +568,7 @@ MonoBehaviour:
   _CellZ: 0
   _FacingRaw: 0
   _PopOrder: 0
+  _Variant: 0
 --- !u!1 &5956926865141038104
 GameObject:
   m_ObjectHideFlags: 0

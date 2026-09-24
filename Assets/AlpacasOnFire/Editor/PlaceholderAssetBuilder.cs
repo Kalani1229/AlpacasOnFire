@@ -5,6 +5,7 @@ using AlpacasOnFire.Machines;
 using AlpacasOnFire.Level;
 using AlpacasOnFire.Networking;
 using AlpacasOnFire.Player;
+using AlpacasOnFire.Prank;
 using AlpacasOnFire.Stall;
 using Fusion;
 using UnityEditor;
@@ -22,6 +23,12 @@ namespace AlpacasOnFire.EditorTools
         public const string PlayerLayer = "Player";
         public const string ItemLayer   = "CarriedItem";
 
+        /// <summary>
+        /// Ragdoll 骨頭專用的 layer。名稱由 `RagdollRig` 持有 ——
+        /// 執行期要靠它查 layer 索引，兩邊寫死同一個字串會在改名時無聲分家。
+        /// </summary>
+        public const string RagdollLayer = RagdollRig.LayerName;
+
         [MenuItem("羊駝很忙/1. 建置佔位資產（材質 + Prefab + Catalog）", priority = 0)]
         public static void BuildAll()
         {
@@ -36,6 +43,11 @@ namespace AlpacasOnFire.EditorTools
             ResetCaches();
             int playerLayer = EnsureLayer(PlayerLayer);
             int itemLayer = EnsureLayer(ItemLayer);
+
+            // Ragdoll 的骨頭要有自己的層，不然倒在地上的十幾顆膠囊會去撞物品、
+            // 撞其他玩家，也會被 PlayerInteractor 的 SphereCast 掃到。
+            // 這裡只負責把層建出來；哪些層互相忽略是 RagdollRig 在執行期設的。
+            EnsureLayer(RagdollLayer);
 
             var items = new List<GameCatalog.ItemEntry>();
             var elements = new List<GameCatalog.ElementEntry>();
@@ -162,6 +174,82 @@ namespace AlpacasOnFire.EditorTools
 
         // ---------------------------------------------------------------- 玩家
 
+        // ---------------- 羊駝模型 ----------------
+
+        private const string AlpacaModelPath = "Assets/AlpacasOnFire/Models/MD_Alpaca.fbx";
+        private const string AlpacaControllerPath =
+            "Assets/AlpacasOnFire/Animation/Player/AC_Alpaca.controller";
+
+        /// <summary>
+        /// 模型的縮放與位移。
+        ///
+        /// **這兩個值是人眼校出來的** —— FBX 的原始大小不會剛好等於
+        /// GameTuning.AlpacaHeight（1.8）。校的方法是把膠囊版與模型版擺在一起，
+        /// 調到「頭頂差不多齊」為止。0.5 是目視校正的結果（原尺寸大約是兩倍大）。
+        ///
+        /// 硬寫在這裡而不是留在 prefab 上，是因為每次跑「建置佔位資產」都會重建 prefab，
+        /// 在 Inspector 調的值下一次就被蓋掉了。
+        /// </summary>
+        private const float AlpacaModelScale = 0.5f;
+        private static readonly Vector3 AlpacaModelOffset = Vector3.zero;
+
+        /// <summary>
+        /// 建出玩家的身體視覺，回傳所有要參與「擋畫布時淡化」的 Renderer。
+        /// out fadeBody 是舊的單一 Renderer 欄位要接的那一個（膠囊版用）。
+        /// </summary>
+        private static Renderer[] BuildPlayerVisual(GameObject root, Material placeholderMat,
+                                                    out Renderer fadeBody)
+        {
+            var model = AssetDatabase.LoadAssetAtPath<GameObject>(AlpacaModelPath);
+
+            if (model == null)
+            {
+                // ---- 沒有美術模型：原本的膠囊 + 鼻子，一行都沒改 ----
+                var body = Prim(PrimitiveType.Capsule, "Body", root.transform,
+                    new Vector3(0f, GameTuning.AlpacaHeight * 0.5f, 0f),
+                    new Vector3(GameTuning.AlpacaRadius * 2f, GameTuning.AlpacaHeight * 0.5f,
+                                GameTuning.AlpacaRadius * 2f),
+                    placeholderMat, keepCollider: false);
+
+                // 面向指示（讓佔位角色看得出朝向）
+                Prim(PrimitiveType.Cube, "Snout", body.transform, new Vector3(0f, 0.55f, 0.55f),
+                     new Vector3(0.45f, 0.35f, 0.55f), placeholderMat, keepCollider: false);
+
+                fadeBody = body.GetComponent<Renderer>();
+                return new[] { fadeBody };
+            }
+
+            // ---- 有美術模型 ----
+            var visual = (GameObject)PrefabUtility.InstantiatePrefab(model);
+            visual.name = "Visual";
+            visual.transform.SetParent(root.transform, false);
+            visual.transform.localPosition = AlpacaModelOffset;
+            visual.transform.localScale = Vector3.one * AlpacaModelScale;
+
+            var animator = visual.GetComponent<Animator>();
+            if (animator == null) animator = visual.AddComponent<Animator>();
+
+            animator.runtimeAnimatorController =
+                AssetDatabase.LoadAssetAtPath<RuntimeAnimatorController>(AlpacaControllerPath);
+
+            if (animator.runtimeAnimatorController == null)
+                BuildReport.Error($"找不到 {AlpacaControllerPath} —— 羊駝會是靜止的。");
+
+            // **位移由 NetworkCharacterController 負責，不能讓動畫搶。**
+            // 開著 root motion 的話跑步動畫會自己把角色往前推，跟 NCC 打架，
+            // 在連線下會變成位置一直被拉扯。
+            animator.applyRootMotion = false;
+
+            // 模型的 Renderer 全部納入淡化：羊駝有六個材質，可能分在好幾個 Renderer 上，
+            // 只淡其中一個的話會剩下半隻不透明的羊駝擋在畫布前面。
+            var renderers = visual.GetComponentsInChildren<Renderer>(true);
+            fadeBody = renderers.Length > 0 ? renderers[0] : null;
+
+            BuildReport.Line($"  玩家使用美術模型 MD_Alpaca（{renderers.Length} 個 Renderer、" +
+                             $"縮放 {AlpacaModelScale}）");
+            return renderers;
+        }
+
         private static GameObject BuildPlayer(int layer)
         {
             var mat = Mat("M_Alpaca", PlaceholderPalette.PlayerColor(0));
@@ -170,15 +258,12 @@ namespace AlpacasOnFire.EditorTools
 
             var root = new GameObject("Alpaca_Player");
 
-            // 身體：膠囊，高度 = 羊駝站立高度
-            var body = Prim(PrimitiveType.Capsule, "Body", root.transform,
-                new Vector3(0f, GameTuning.AlpacaHeight * 0.5f, 0f),
-                new Vector3(GameTuning.AlpacaRadius * 2f, GameTuning.AlpacaHeight * 0.5f, GameTuning.AlpacaRadius * 2f),
-                mat, keepCollider: false);
-
-            // 面向指示（讓佔位角色看得出朝向）
-            Prim(PrimitiveType.Cube, "Snout", body.transform, new Vector3(0f, 0.55f, 0.55f),
-                 new Vector3(0.45f, 0.35f, 0.55f), mat, keepCollider: false);
+            // 身體：有美術模型就用模型，沒有就退回膠囊。
+            //
+            // 這個分支是**必要的**：prefab 是這支程式產生的，手動把模型拖進 prefab
+            // 的話，下一次跑「1. 建置佔位資產」就會被膠囊蓋回去。
+            // 退路也要留著 —— 拿不到 feat-art 的人跑這支還是要能得到一個能動的角色。
+            var bodyRenderers = BuildPlayerVisual(root, mat, out var fadeBody);
 
             var garment = Prim(PrimitiveType.Cube, "GarmentVisual", root.transform,
                 new Vector3(0f, 1.0f, 0f), new Vector3(0.85f, 0.55f, 0.75f), garmentMat, keepCollider: false);
@@ -186,6 +271,14 @@ namespace AlpacasOnFire.EditorTools
 
             var fleece = Prim(PrimitiveType.Sphere, "FleeceIndicator", root.transform,
                 new Vector3(0f, 1.72f, 0f), Vector3.one * 0.42f, fleeceMat, keepCollider: false);
+
+            // 剃毛器：平常關著，剃毛的瞬間由 PlayerController.Render() 打開 0.35 秒。
+            // 掛在身體側前方，剃毛時看得出是「伸出來揮了一下」而不是憑空掉東西。
+            var shearsMat = Mat("M_Shears", new Color(0.75f, 0.78f, 0.82f));
+            var shears = Prim(PrimitiveType.Cube, "ShearsVisual", root.transform,
+                new Vector3(0.34f, 1.1f, 0.62f), new Vector3(0.12f, 0.12f, 0.42f),
+                shearsMat, keepCollider: false);
+            shears.SetActive(false);
 
             var head  = Empty("HeadAnchor", root.transform, new Vector3(0f, GameTuning.EyeHeight, 0f));
             var hand  = Empty("HandAnchor", root.transform, new Vector3(0.25f, 1.05f, 0.6f));
@@ -218,14 +311,24 @@ namespace AlpacasOnFire.EditorTools
             root.AddComponent<PlayerCarry>();
             // 擺攤系統：每個玩家自己的放置狀態。PlayerController 一行都沒動，只是多掛一個元件。
             root.AddComponent<Stall.PlayerStallAgent>();
+            // 惡搞系統：被口水／大蔥／卡車打到的狀態。跟 NPC 掛的是同一支元件。
+            root.AddComponent<Prank.StaggerStatus>();
+            // 動畫：讀同步的 NCC.Velocity 與 WorkTimer 決定 Idle／Run／Work。
+            // 膠囊版沒有 Animator，這支會自己靜默，不會吼錯誤。
+            root.AddComponent<PlayerAnimator>();
+
+            AttachRagdoll(root);
 
             SetRef(pc, "_handAnchor", hand.transform);
             SetRef(pc, "_headAnchor", head.transform);
             SetRef(pc, "_catchAnchor", catchA.transform);
             SetRef(pc, "_garmentAnchor", garmentAnchor.transform);
-            SetRef(pc, "_bodyRenderer", body.GetComponent<Renderer>());
+            // 單一 Renderer 的舊欄位留著（膠囊版用），模型版走陣列 —— 羊駝有六個材質
+            SetRef(pc, "_bodyRenderer", fadeBody);
+            SetRefArray(pc, "_bodyRenderers", bodyRenderers);
             SetRef(pc, "_garmentRenderer", garment.GetComponent<Renderer>());
             SetRef(pc, "_fleeceIndicator", fleece.GetComponent<Renderer>());
+            SetRef(pc, "_shearsVisual", shears);
 
             // 擋住畫布時會整隻換成這個半透明材質
             SetRef(pc, "_fadeMaterial",
@@ -234,6 +337,47 @@ namespace AlpacasOnFire.EditorTools
 
             SetLayerRecursive(root, layer);
             return SavePrefab(root, "Alpaca_Player");
+        }
+
+        /// <summary>
+        /// 掛上倒地 ragdoll。
+        ///
+        /// **三種情況都要能過**：
+        ///  1. 有模型 + 有調好的 RagdollProfile  -> 正常掛上
+        ///  2. 有模型、還沒跑過「掃描羊駝骨架」  -> 掛上但 profile 是空的，
+        ///     `RagdollRig.Ready` 會是 false，自動退回舊的整隻傾倒表現
+        ///  3. 沒有美術模型（膠囊佔位版）        -> 完全不掛，連警告都不吼
+        ///
+        /// 第 2 種情況**不該是錯誤**：clone 下來第一次跑建置的人不會先去跑掃描，
+        /// 他應該拿到一個能動的角色，加上一行「想要 ragdoll 就去跑那個選單」。
+        ///
+        /// 注意這裡只接 profile 與 Animator，**骨頭是執行期照名稱找的**。
+        /// 不在這裡把 Transform 指進去，是因為 prefab 每次建置都會重建，
+        /// 指向內部節點的參考留不住 —— 名稱留得住。
+        /// </summary>
+        private static void AttachRagdoll(GameObject root)
+        {
+            var visual = root.transform.Find("Visual");
+            if (visual == null) return;   // 膠囊版：沒有骨架，安靜跳過
+
+            var rig = root.AddComponent<RagdollRig>();
+            SetRef(rig, "_animator", visual.GetComponent<Animator>());
+
+            var armature = visual.Find("Armature");
+            SetRef(rig, "_skeletonRoot", armature != null ? armature : visual);
+
+            var profile = AssetDatabase.LoadAssetAtPath<RagdollProfile>(
+                "Assets/AlpacasOnFire/Resources/RagdollProfile.asset");
+
+            if (profile == null)
+            {
+                BuildReport.Line("  沒有 RagdollProfile —— 倒地維持舊的整隻傾倒。" +
+                                 "想要 ragdoll 請跑「羊駝很忙 > Ragdoll > 1. 掃描羊駝骨架」。");
+                return;
+            }
+
+            SetRef(rig, "_profile", profile);
+            BuildReport.Line($"  倒地 ragdoll 已接上 RagdollProfile（{profile.bones.Length} 根骨頭）");
         }
 
         // ---------------------------------------------------------------- 物品
@@ -320,6 +464,138 @@ namespace AlpacasOnFire.EditorTools
                 return (typeof(ShearsTool), new Renderer[] { b.GetComponent<Renderer>() });
             }));
 
+            // ---- 惡搞道具 ----
+            //
+            // **只有兩個道具。** 口水是羊駝自帶的能力（E 鍵），沒有實體物件 ——
+            // 它不用撿、不佔手，跟另外兩個的定位完全不同。見 PlayerController.TrySpit()。
+            //
+            // 兩個都刻意做成完全不同的形狀與顏色。這些是會被丟來丟去、
+            // 掉在地上的東西，玩家要在一團混亂裡一眼認出「那是卡車」。
+
+            // 口水：飛出去的那一顆。**不是 CarriableItem** —— 撿得起來的口水很奇怪，
+            // 而且它只活一秒多。走 items 清單只是為了借用 GameCatalog 的查表，
+            // 生成端是 PlayerController.TrySpit() 直接 Runner.Spawn()。
+            AddItem(outItems, failures, "Item_Spit", () =>
+            {
+                var goo = Mat("M_SpitGoo", new Color(0.62f, 0.86f, 0.42f));
+
+                var root = new GameObject("Item_Spit");
+
+                // 整包視覺掛在 Visual 底下，SpitProjectile.Render() 會沿飛行方向
+                // 把它拉長成殘影 —— 初速 65 之下不拉長的話一格跳 1.08 公尺，看不見。
+                // 球做成直徑 0.3（= SpitProjectile.BaseLength），拉伸倍率才算得準。
+                var visual = Empty("Visual", root.transform, Vector3.zero);
+
+                Prim(PrimitiveType.Sphere, "Goo", visual.transform, Vector3.zero,
+                     Vector3.one * 0.3f, goo, keepCollider: false);
+
+                if (root.GetComponent<NetworkObject>() == null) root.AddComponent<NetworkObject>();
+                if (root.GetComponent<NetworkTransform>() == null) root.AddComponent<NetworkTransform>();
+
+                var spit = root.AddComponent<SpitProjectile>();
+                SetRef(spit, "_visual", visual.transform);
+
+                SetLayerRecursive(root, layer);
+                var prefab = SavePrefab(root, "Item_Spit");
+                return new GameCatalog.ItemEntry
+                {
+                    kind = ItemKind.Spit,
+                    prefab = prefab.GetComponent<NetworkObject>(),
+                };
+            });
+
+            // 大蔥：又長又綠，揮起來最有存在感。
+            // 整根掛在 SwingPivot 底下，揮打時繞著樞紐轉（LeekTool.Render()）。
+            AddItem(outItems, failures, "Item_Leek", () => Item(ItemKind.Leek, "Item_Leek", layer, root =>
+            {
+                var white = Mat("M_LeekStem", new Color(0.94f, 0.95f, 0.88f));
+                var green = Mat("M_LeekLeaf", new Color(0.36f, 0.66f, 0.28f));
+
+                var pivot = Empty("SwingPivot", root.transform, Vector3.zero);
+
+                var stem = Prim(PrimitiveType.Cylinder, "Stem", pivot.transform, new Vector3(0f, 0f, 0.3f),
+                                new Vector3(0.1f, 0.34f, 0.1f), white);
+                stem.transform.localRotation = Quaternion.Euler(90f, 0f, 0f);
+
+                var leaf = Prim(PrimitiveType.Cylinder, "Leaf", pivot.transform, new Vector3(0f, 0f, 0.92f),
+                                new Vector3(0.08f, 0.3f, 0.08f), green, keepCollider: false);
+                leaf.transform.localRotation = Quaternion.Euler(90f, 0f, 0f);
+
+                var leek = root.AddComponent<LeekTool>();
+                SetRef(leek, "_swingPivot", pivot.transform);
+
+                return (typeof(LeekTool), new Renderer[] { stem.GetComponent<Renderer>() });
+            }, componentAlreadyAdded: true));
+
+            // 卡車：最大、最重、最荒謬。舉起來的那一段掛在 Lift 子物件上，
+            // 蓄力時 TruckTool.Render() 會把它抬高，所有人都看得到有人要出手。
+            AddItem(outItems, failures, "Item_Truck", () => Item(ItemKind.Truck, "Item_Truck", layer, root =>
+            {
+                var paint = Mat("M_TruckBody", new Color(0.82f, 0.28f, 0.22f));
+                var glass = Mat("M_TruckGlass", new Color(0.55f, 0.72f, 0.85f));
+                var tyre = Mat("M_TruckTyre", new Color(0.14f, 0.14f, 0.16f));
+
+                var lift = Empty("Lift", root.transform, Vector3.zero);
+
+                var body = Prim(PrimitiveType.Cube, "Chassis", lift.transform, Vector3.zero,
+                                new Vector3(0.42f, 0.24f, 0.78f), paint);
+                Prim(PrimitiveType.Cube, "Cab", lift.transform, new Vector3(0f, 0.2f, 0.2f),
+                     new Vector3(0.36f, 0.22f, 0.3f), glass, keepCollider: false);
+
+                for (int i = 0; i < 4; i++)
+                {
+                    var wheel = Prim(PrimitiveType.Cylinder, $"Wheel{i}", lift.transform,
+                        new Vector3(i % 2 == 0 ? -0.22f : 0.22f, -0.14f, i < 2 ? 0.24f : -0.24f),
+                        new Vector3(0.14f, 0.05f, 0.14f), tyre, keepCollider: false);
+                    wheel.transform.localRotation = Quaternion.Euler(0f, 0f, 90f);
+                }
+
+                // 爆炸的火球。平常關著，炸的時候脹到波及半徑再淡掉。
+                // 沒有粒子系統就用一顆會脹大的球 —— 佔位美術的原則是「看得懂」不是「好看」。
+                var blastMat = TransparentMat("M_TruckBlast", new Color(1f, 0.62f, 0.18f), 0.55f);
+                var blast = Prim(PrimitiveType.Sphere, "Blast", root.transform, Vector3.zero,
+                                 Vector3.one, blastMat, keepCollider: false);
+                blast.SetActive(false);
+
+                var truck = root.AddComponent<TruckTool>();
+                SetRef(truck, "_liftVisual", lift.transform);
+                SetRef(truck, "_blastVisual", blast);
+
+                return (typeof(TruckTool), new Renderer[] { body.GetComponent<Renderer>() });
+            }, componentAlreadyAdded: true));
+
+            // ---- 生產鏈：絲線 ----
+            //
+            // 紡線機的產出、織布機唯一的原料。
+            //
+            // 外型做成**線軸**（細長圓柱 + 兩端擋片），跟羊毛的球體一眼分得出來 ——
+            // 這兩個東西會同時出現在同一個工作區、會被丟來丟去、會掉在地上，
+            // 分不出來的話玩家會一直往錯的機台送。
+            //
+            // 顏色沿用 PlaceholderPalette.Dye()：絲線繼承那份毛的顏色，
+            // 顏色在這條產線上是一路傳到成衣的。
+            AddItem(outItems, failures, "Item_Thread", () => Item(ItemKind.Thread, "Item_Thread", layer, root =>
+            {
+                var mat = Mat("M_Thread", PlaceholderPalette.Dye(DyeColorType.Red));
+                var flange = Mat("M_ThreadFlange", new Color(0.78f, 0.70f, 0.56f));   // 木質擋片
+
+                // 線身：躺著的細長圓柱（Cylinder 預設立著，轉 90 度讓它橫躺）
+                var spool = Prim(PrimitiveType.Cylinder, "Spool", root.transform, Vector3.zero,
+                                 new Vector3(0.13f, 0.2f, 0.13f), mat);
+                spool.transform.localRotation = Quaternion.Euler(90f, 0f, 0f);
+
+                // 兩端的擋片，讓它明確是「線軸」而不是一根棒子
+                for (int i = 0; i < 2; i++)
+                {
+                    var cap = Prim(PrimitiveType.Cylinder, $"Flange{i}", root.transform,
+                                   new Vector3(0f, 0f, i == 0 ? -0.2f : 0.2f),
+                                   new Vector3(0.2f, 0.02f, 0.2f), flange, keepCollider: false);
+                    cap.transform.localRotation = Quaternion.Euler(90f, 0f, 0f);
+                }
+
+                // 只有線身會被染色，擋片維持木色（不然整顆變成一坨純色，又跟羊毛難分了）
+                return (typeof(CarriableItem), new Renderer[] { spool.GetComponent<Renderer>() });
+            }));
         }
 
         private static GameCatalog.ItemEntry Item(ItemKind kind, string prefabName, int layer,

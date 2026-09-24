@@ -339,7 +339,10 @@ namespace AlpacasOnFire.EditorTools
 
             var go = new GameObject("[TitleUI]", typeof(Canvas), typeof(CanvasScaler), typeof(GraphicRaycaster));
             var menu = go.AddComponent<TitleMenu>();
-            SetString(menu, "_gameSceneName", Level01SceneName);
+
+            // 開始 -> 羊駝村（v6 的主場景）。
+            // Level01_Workshop 是 Phase 1 的舊工坊，留著但不再是進入點。
+            SetString(menu, "_gameSceneName", VillageSceneBuilder.VillageSceneName);
 
             var cam = new GameObject("MainCamera", typeof(Camera), typeof(AudioListener));
             cam.tag = "MainCamera";

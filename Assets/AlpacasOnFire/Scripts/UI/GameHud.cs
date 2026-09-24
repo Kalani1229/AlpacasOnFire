@@ -1,6 +1,8 @@
 using System.Collections.Generic;
 using AlpacasOnFire.Core;
+using AlpacasOnFire.Interaction;
 using AlpacasOnFire.Items;
+using AlpacasOnFire.Npc;
 using AlpacasOnFire.Orders;
 using AlpacasOnFire.Player;
 using UnityEngine;
@@ -46,6 +48,13 @@ namespace AlpacasOnFire.UI
             BuildUI();
             OrderBoard.OnDeliveryResult += HandleDelivery;
             OrderBoard.OnOrderExpired += HandleExpired;
+
+            // v6：Village 的成交／失敗走顧客系統，訂單板那兩個事件永遠不會觸發。
+            // 沒有接這幾條的話，Village 裡交貨與顧客流失完全沒有畫面回饋。
+            CustomerQueue.OnCustomerServed += HandleCustomerServed;
+            CustomerQueue.OnCustomerLeft += HandleNoMatch;
+            CustomerQueue.OnCustomerTimeout += HandleExpired;
+
             LevelDirector.OnMoneyChanged += HandleMoney;
         }
 
@@ -53,6 +62,9 @@ namespace AlpacasOnFire.UI
         {
             OrderBoard.OnDeliveryResult -= HandleDelivery;
             OrderBoard.OnOrderExpired -= HandleExpired;
+            CustomerQueue.OnCustomerServed -= HandleCustomerServed;
+            CustomerQueue.OnCustomerLeft -= HandleNoMatch;
+            CustomerQueue.OnCustomerTimeout -= HandleExpired;
             LevelDirector.OnMoneyChanged -= HandleMoney;
         }
 
@@ -93,11 +105,33 @@ namespace AlpacasOnFire.UI
                 new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(0.5f, 0f),
                 new Vector2(0f, 120f), new Vector2(900f, 40f));
 
+            // 下方中央、主提示的下面一行：惡搞提示
+            _prankLabel = UIFactory.Label("Prank", root, "", 22, TextAnchor.LowerCenter,
+                new Color(1f, 0.86f, 0.5f),
+                new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(0.5f, 0f),
+                new Vector2(0f, 88f), new Vector2(900f, 32f));
+
             // 左下：目前攜帶物
             _carryLabel = UIFactory.Label("Carry", root, "", 24, TextAnchor.LowerLeft,
                 new Color(0.9f, 0.95f, 1f),
                 new Vector2(0f, 0f), new Vector2(0f, 0f), new Vector2(0f, 0f),
                 new Vector2(28f, 32f), new Vector2(600f, 36f));
+
+            // 左下、攜帶物上面一行：Q 的用法 + 蓄力條
+            _carryHintLabel = UIFactory.Label("CarryHint", root, "", 20, TextAnchor.LowerLeft,
+                new Color(0.78f, 0.82f, 0.9f),
+                new Vector2(0f, 0f), new Vector2(0f, 0f), new Vector2(0f, 0f),
+                new Vector2(28f, 68f), new Vector2(600f, 28f));
+
+            _throwBarBg = UIFactory.Panel("ThrowBg", root, new Color(0f, 0f, 0f, 0.55f),
+                new Vector2(0f, 0f), new Vector2(0f, 0f), new Vector2(0f, 0f),
+                new Vector2(28f, 100f), new Vector2(220f, 14f));
+            _throwBarFill = UIFactory.Panel("ThrowFill", _throwBarBg.transform,
+                new Color(0.98f, 0.8f, 0.3f),
+                new Vector2(0f, 0f), new Vector2(0f, 1f), new Vector2(0f, 0.5f),
+                Vector2.zero, new Vector2(0f, 0f));
+            _throwBarFill.rectTransform.anchoredPosition = Vector2.zero;
+            _throwBarBg.gameObject.SetActive(false);
 
             // 右下：噴槍染劑量
             _sprayBarBg = UIFactory.Panel("SprayBg", root, new Color(0f, 0f, 0f, 0.55f),
@@ -115,6 +149,43 @@ namespace AlpacasOnFire.UI
             _toastLabel = UIFactory.Label("Toast", root, "", 30, TextAnchor.MiddleCenter, Color.white,
                 new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f),
                 new Vector2(0f, -160f), new Vector2(1000f, 40f));
+
+            // 全螢幕：被口水噴到的視覺干擾。最後才建，蓋在所有東西上面。
+            _blindOverlay = UIFactory.Panel("Blind", root, new Color(0.86f, 0.88f, 0.72f, 0f),
+                Vector2.zero, Vector2.one, new Vector2(0.5f, 0.5f), Vector2.zero, Vector2.zero);
+            _blindOverlay.raycastTarget = false;
+
+            _blindLabel = UIFactory.Label("BlindLabel", root, "", 34, TextAnchor.MiddleCenter,
+                new Color(0.2f, 0.2f, 0.18f, 0f),
+                new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f),
+                new Vector2(0f, 90f), new Vector2(900f, 44f));
+        }
+
+        private Image _blindOverlay;
+        private Text _blindLabel;
+
+        /// <summary>
+        /// 被口水噴到：畫面蒙上一層。
+        ///
+        /// **刻意不是全黑。** 保留視覺、只干擾 —— 看不到東西的人連自己被整了
+        /// 都不知道，那就沒有笑點只剩煩躁。留 18% 透出來，還看得到輪廓，
+        /// 知道發生什麼事、也還走得動，只是瞄不準。
+        /// </summary>
+        private void UpdateBlind(PlayerController p)
+        {
+            if (_blindOverlay == null) return;
+
+            var status = p != null ? p.GetComponent<Prank.StaggerStatus>() : null;
+            float t = status != null ? Mathf.Clamp01(status.Blind01) : 0f;
+
+            var c = _blindOverlay.color;
+            c.a = t * GameTuning.BlindMaxOpacity;
+            _blindOverlay.color = c;
+
+            var lc = _blindLabel.color;
+            lc.a = t;
+            _blindLabel.color = lc;
+            _blindLabel.text = t > 0.01f ? "視線被擋住了！" : "";
         }
 
         /// <summary>畫面正中央的十字準星。塗抹就是對著這個點刷，所以要一眼看得到。</summary>
@@ -195,7 +266,63 @@ namespace AlpacasOnFire.UI
             UpdateFlashAndToast();
         }
 
+        /// <summary>
+        /// 訂單卡有兩個來源，看場上跑的是哪一套需求系統：
+        ///   Village -> CustomerQueue（站在窗口外排隊的顧客）
+        ///   Stall_Test -> OrderBoard（既有的訂單板）
+        ///
+        /// 判斷條件跟 DeliveryCounter.RouteDelivery() 與 OrderBoard.CustomersOwnDemand()
+        /// **必須是同一個**，否則會出現「卡片上有、交過去卻說沒人要」的落差 ——
+        /// 那正是先前白色訂單交不掉的那個 bug。
+        /// </summary>
         private void UpdateOrders()
+        {
+            var queue = CustomerQueue.Instance;
+            if (queue != null && queue.Object != null && queue.Object.IsValid)
+                UpdateCustomerCards(queue);
+            else
+                UpdateOrderBoardCards();
+        }
+
+        private readonly List<Customer> _customerBuffer = new();
+
+        private void UpdateCustomerCards(CustomerQueue queue)
+        {
+            queue.CollectActive(_customerBuffer);
+
+            for (int i = 0; i < _cards.Count; i++)
+            {
+                var card = _cards[i];
+
+                if (i >= _customerBuffer.Count)
+                {
+                    card.Root.SetActive(false);
+                    card.BoundId = -1;
+                    continue;
+                }
+
+                var c = _customerBuffer[i];
+
+                // 用 NetworkId 當識別碼：同一位顧客在同一格的期間不重建文字。
+                // 顧客是「被徵召的羊」，同一隻羊可以當好幾次顧客，但每次徵召之間
+                // 一定會經過 Leave -> Release（Active 變 false），所以卡片會先被收掉、
+                // 下一次再綁上來，不會殘留上一單的描述。
+                int id = (int)c.Object.Id.Raw;
+
+                card.Root.SetActive(true);
+                if (card.BoundId != id)
+                {
+                    card.BoundId = id;
+                    card.Title.text = c.Wanted.Describe();
+                    card.Swatch.color = PlaceholderPalette.Dye(c.Wanted.Color);
+                }
+
+                SetCountdown(card, c.Patience01);
+                card.Sub.text = $"${c.Price}　{c.PatienceRemaining:F0}s";
+            }
+        }
+
+        private void UpdateOrderBoardCards()
         {
             var board = OrderBoard.Instance;
             for (int i = 0; i < _cards.Count; i++)
@@ -220,17 +347,21 @@ namespace AlpacasOnFire.UI
                 {
                     card.BoundId = e.Id;
                     card.Title.text = e.Spec.Describe();
-                    card.Sub.text = $"${e.Reward}";
                     card.Swatch.color = PlaceholderPalette.Dye(e.Spec.Color);
                 }
 
-                float t = e.Remaining01;
-                card.CountdownBorder.fillAmount = t;
-                card.CountdownBorder.color = t > 0.5f
-                    ? Color.Lerp(new Color(0.95f, 0.85f, 0.2f), new Color(0.3f, 0.9f, 0.4f), (t - 0.5f) * 2f)
-                    : Color.Lerp(new Color(0.95f, 0.25f, 0.2f), new Color(0.95f, 0.85f, 0.2f), t * 2f);
+                SetCountdown(card, e.Remaining01);
                 card.Sub.text = $"${e.Reward}　{e.Remaining:F0}s";
             }
+        }
+
+        /// <summary>倒數框：綠 -> 黃 -> 紅。兩個來源共用同一套配色，讀起來才一致。</summary>
+        private static void SetCountdown(OrderCard card, float t)
+        {
+            card.CountdownBorder.fillAmount = t;
+            card.CountdownBorder.color = t > 0.5f
+                ? Color.Lerp(new Color(0.95f, 0.85f, 0.2f), new Color(0.3f, 0.9f, 0.4f), (t - 0.5f) * 2f)
+                : Color.Lerp(new Color(0.95f, 0.25f, 0.2f), new Color(0.95f, 0.85f, 0.2f), t * 2f);
         }
 
         private void UpdateStatus()
@@ -261,10 +392,26 @@ namespace AlpacasOnFire.UI
         private void UpdatePlayerInfo()
         {
             var p = PlayerController.Local;
+            UpdateBlind(p);
+
             if (p == null || p.Object == null)
             {
                 _promptLabel.text = "";
                 _carryLabel.text = "";
+                _carryHintLabel.text = "";
+                _prankLabel.text = "";
+                _throwBarBg.gameObject.SetActive(false);
+                _sprayBarBg.gameObject.SetActive(false);
+                _sprayLabel.text = "";
+                return;
+            }
+
+            // 失控中不給任何互動提示 —— 按了也沒用，顯示出來只會讓人一直按
+            if (p.IsStaggered)
+            {
+                _promptLabel.text = "站不起來…";
+                _carryLabel.text = "";
+                _prankLabel.text = "";
                 _sprayBarBg.gameObject.SetActive(false);
                 _sprayLabel.text = "";
                 return;
@@ -273,19 +420,49 @@ namespace AlpacasOnFire.UI
             var held = p.Carry.Held;
             _carryLabel.text = held != null ? $"手上：{held.DisplayName}" : "手上：空";
 
-            // 提示：接住優先於其他互動（跟 Q 鍵的判定順序一致）
+            // 提示的判定順序**必須跟 PlayerController.HandlePrimaryPress 完全一致**，
+            // 不然會出現「提示說可以做、按下去卻沒反應」的落差。
+            //   接住 -> 道具使用 -> 情境互動 -> 什麼都不做
+            //
+            // **左鍵不再有「丟出」**，所以這裡也不再有那一行 —— 丟出與放下都歸 Q，
+            // 由 UpdateCarryHint() 另外顯示。
             string prompt = null;
             if (p.Carry.FindCatchable(GameTuning.CatchManualRadius, requireFacing: false) != null)
             {
-                prompt = "[Space] 接住！";
+                prompt = "[左鍵] 接住！";
             }
-            else
+            else if (held is Prank.PrankTool prankHeld)
+            {
+                var pctx = p.Interactor.BuildContext();
+                prompt = prankHeld.BuildPrompt(in pctx);
+            }
+
+            // 左鍵被拿去蓄力的東西（卡車），左鍵就不做情境互動了，
+            // 所以也不該顯示情境互動的提示 —— 顯示了按下去也不會發生。
+            if (string.IsNullOrEmpty(prompt) && (held == null || !held.ChargesOnPrimary))
             {
                 var target = p.Interactor.FindTarget(out var ctx);
-                if (target != null) prompt = target.GetPrompt(in ctx);
-                if (string.IsNullOrEmpty(prompt) && held != null) prompt = "[Q] 丟出";
+                if (target != null)
+                {
+                    prompt = target.GetPrompt(in ctx);
+
+                    // 按住的提示是**另外一行**，不是取代單擊那一行。
+                    // 紡線機兩件事可以同時成立（手上有毛可以投料、機器裡也有料可以紡），
+                    // 只顯示一個的話玩家會以為另一個不能做。
+                    if (target is IHoldInteractable hold && hold.CanHold(in ctx))
+                    {
+                        string holdPrompt = hold.GetHoldPrompt(in ctx);
+                        if (!string.IsNullOrEmpty(holdPrompt))
+                            prompt = string.IsNullOrEmpty(prompt)
+                                ? holdPrompt
+                                : prompt + "\n" + holdPrompt;
+                    }
+                }
             }
             _promptLabel.text = prompt ?? "";
+
+            UpdateCarryHint(p, held);
+            UpdatePrankHint(p, held);
 
             if (held is DyeCanisterTool canister)
             {
@@ -303,6 +480,78 @@ namespace AlpacasOnFire.UI
                 _sprayLabel.text = "";
             }
         }
+
+        /// <summary>
+        /// 口水（E）的提示。它是自帶能力，跟手上拿什麼無關，所以永遠顯示 ——
+        /// 冷卻中轉灰並顯示秒數，不然玩家會一直按、以為鍵壞了。
+        /// </summary>
+        private void UpdatePrankHint(PlayerController p, Items.CarriableItem held)
+        {
+            if (_prankLabel == null) return;
+
+            if (p.SpitReady)
+            {
+                _prankLabel.text = "[E] 吐口水";
+                _prankLabel.color = new Color(0.72f, 0.9f, 0.72f);
+            }
+            else
+            {
+                float left = p.SpitCooldown01 * GameTuning.SpitCooldownSeconds;
+                _prankLabel.text = $"[E] 吐口水（{left:F1}s）";
+                _prankLabel.color = new Color(0.5f, 0.55f, 0.5f);
+            }
+        }
+
+        private Text _prankLabel;
+
+        /// <summary>
+        /// Q 的提示 + 蓄力條。
+        ///
+        /// 「點按放下、長按丟出」這件事一定要寫出來 —— 同一個鍵兩個動作，
+        /// 不講的話玩家只會發現「按 Q 有時候丟出去有時候掉在腳邊」，
+        /// 完全不知道差別在哪。
+        ///
+        /// 蓄力條也不能省：重量差很多（羊毛 0.15 秒、卡車 2 秒），
+        /// 沒有條子玩家不知道還要按多久。
+        /// </summary>
+        private void UpdateCarryHint(PlayerController p, Items.CarriableItem held)
+        {
+            if (_carryHintLabel == null || _throwBarBg == null) return;
+
+            if (held == null)
+            {
+                _carryHintLabel.text = "";
+                _throwBarBg.gameObject.SetActive(false);
+                return;
+            }
+
+            float t = p.Carry.ThrowCharge01;
+            bool charging = t > 0.001f;
+
+            // 卡車的左鍵也拿來蓄力，提示要把兩個鍵都寫出來
+            string key = held.ChargesOnPrimary ? "左鍵/Q" : "Q";
+
+            _carryHintLabel.text = charging
+                ? $"放開丟出（{t * 100f:F0}%）"
+                : $"[{key}] 點按放下　[{key}] 長按丟出";
+            _carryHintLabel.color = charging
+                ? new Color(1f, 0.9f, 0.55f)
+                : new Color(0.78f, 0.82f, 0.9f);
+
+            _throwBarBg.gameObject.SetActive(charging);
+            if (charging)
+            {
+                _throwBarFill.rectTransform.sizeDelta = new Vector2(216f * t, -4f);
+                // 蓄滿轉綠 —— 一眼看得出「現在放手就是最遠」
+                _throwBarFill.color = t >= 0.999f
+                    ? new Color(0.45f, 0.95f, 0.5f)
+                    : new Color(0.98f, 0.8f, 0.3f);
+            }
+        }
+
+        private Text _carryHintLabel;
+        private Image _throwBarBg;
+        private Image _throwBarFill;
 
         private void UpdateFlashAndToast()
         {
@@ -350,6 +599,15 @@ namespace AlpacasOnFire.UI
             Toast($"訂單超時：{desc}", new Color(1f, 0.55f, 0.3f));
             _flashTimer = 0.8f;
         }
+
+        /// <summary>顧客成交。價格寫進提示，玩家馬上看得到這一單值多少。</summary>
+        private void HandleCustomerServed(int price, string desc)
+        {
+            Toast($"成交：{desc}　+${price}", new Color(0.4f, 1f, 0.5f));
+        }
+
+        /// <summary>交了沒人要的衣服。跟訂單板的失敗走同一套措辭與紅閃。</summary>
+        private void HandleNoMatch(string desc) => HandleDelivery(false, desc);
 
         private void HandleMoney(int delta, string reason, bool negative)
         {

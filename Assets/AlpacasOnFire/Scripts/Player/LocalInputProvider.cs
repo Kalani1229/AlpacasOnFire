@@ -77,9 +77,19 @@ namespace AlpacasOnFire.Player
                 bool throwCatch = kb != null && kb.qKey.isPressed;
                 bool useTool = mouse != null && mouse.rightButton.isPressed;
 
-                _latch.Hold(GameButton.Interact,   interact);
-                _latch.Hold(GameButton.ThrowCatch, throwCatch);
-                _latch.Hold(GameButton.UseTool,    useTool);
+                // E：吐口水。羊駝自帶的能力，跟手上拿什麼無關。
+                // 沿用 GameButton.DefaultTool 這個列舉值 —— 它原本是「拿出隨身剃毛器」，
+                // 剃毛改成內建之後就空著了。NetInput 是連線架構的一部分，
+                // 不動它的列舉，只換這個鍵的意義。
+                bool spit = kb != null && kb.eKey.isPressed;
+
+                _latch.Hold(GameButton.Interact,    interact);
+                _latch.Hold(GameButton.ThrowCatch,  throwCatch);
+                _latch.Hold(GameButton.UseTool,     useTool);
+                _latch.Hold(GameButton.DefaultTool, spit);
+
+                if (kb != null && kb.eKey.wasPressedThisFrame)
+                    _latch.Latch(GameButton.DefaultTool);
 
                 if ((kb != null && kb.spaceKey.wasPressedThisFrame)
                  || (mouse != null && mouse.leftButton.wasPressedThisFrame))
@@ -114,8 +124,8 @@ namespace AlpacasOnFire.Player
         /// <summary>把「按住」與「這一幀按下」兩種狀態合併成一次 tick 的按鍵位元。</summary>
         private struct NetworkButtonsLatch
         {
-            private bool _holdInteract, _holdThrow, _holdTool;
-            private bool _latchInteract, _latchThrow, _latchTool;
+            private bool _holdInteract, _holdThrow, _holdTool, _holdDefaultTool;
+            private bool _latchInteract, _latchThrow, _latchTool, _latchDefaultTool;
 
             public void Hold(GameButton b, bool value)
             {
@@ -124,6 +134,7 @@ namespace AlpacasOnFire.Player
                     case GameButton.Interact:   _holdInteract = value; break;
                     case GameButton.ThrowCatch: _holdThrow = value; break;
                     case GameButton.UseTool:    _holdTool = value; break;
+                    case GameButton.DefaultTool: _holdDefaultTool = value; break;
                 }
             }
 
@@ -134,6 +145,7 @@ namespace AlpacasOnFire.Player
                     case GameButton.Interact:   _latchInteract = true; break;
                     case GameButton.ThrowCatch: _latchThrow = true; break;
                     case GameButton.UseTool:    _latchTool = true; break;
+                    case GameButton.DefaultTool: _latchDefaultTool = true; break;
                 }
             }
 
@@ -142,6 +154,7 @@ namespace AlpacasOnFire.Player
                 input.SetButton(GameButton.Interact,   _holdInteract || _latchInteract);
                 input.SetButton(GameButton.ThrowCatch, _holdThrow || _latchThrow);
                 input.SetButton(GameButton.UseTool,    _holdTool || _latchTool);
+                input.SetButton(GameButton.DefaultTool, _holdDefaultTool || _latchDefaultTool);
             }
 
             public void ConsumeLatches()
@@ -149,11 +162,12 @@ namespace AlpacasOnFire.Player
                 _latchInteract = false;
                 _latchThrow = false;
                 _latchTool = false;
+                _latchDefaultTool = false;
             }
 
             public void Clear()
             {
-                _holdInteract = _holdThrow = _holdTool = false;
+                _holdInteract = _holdThrow = _holdTool = _holdDefaultTool = false;
                 ConsumeLatches();
             }
         }

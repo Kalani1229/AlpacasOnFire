@@ -9,6 +9,7 @@ namespace AlpacasOnFire.Networking
         Interact   = 0, // Space 或 滑鼠左鍵
         ThrowCatch = 1, // Q
         UseTool    = 2, // 滑鼠右鍵（按住）—— 塗抹之類的持續動作
+        DefaultTool = 3, // E —— 拿出／收起隨身剃毛器（v6）
     }
 
     /// <summary>

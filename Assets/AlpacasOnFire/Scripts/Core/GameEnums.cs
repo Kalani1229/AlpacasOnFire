@@ -13,6 +13,19 @@ namespace AlpacasOnFire.Core
         Box = 7,           // 箱子
         Shears = 8,        // 剃毛器（工具）
         Suitcase = 10,     // 手提箱（擺攤系統；拿著時佔用雙手）
+
+        // ---- 惡搞道具（一律往後加，不重排）----
+        // 三種解法：潛行（口水）／驅趕（大蔥）／強攻（卡車）。
+        //
+        // 11 已作廢但**保留編號不重用**：口水改成羊駝自帶的能力（E 鍵），
+        // 不是撿得到的道具，所以沒有對應的 prefab。
+        Spit = 11,         // 已作廢 —— 見 PlayerController.TrySpit()
+        Leek = 12,         // 大蔥：擊退 + 螢幕震一下，用來驅趕
+        Truck = 13,        // 卡車：蓄力砸下去，暈眩倒地、身上的毛全部掉出來（單次）
+
+        // ---- 生產鏈（紡線機）----
+        // 生產鏈從兩段變三段：素材箱 -> 紡線機 -> 織布機 -> 交貨窗口。
+        Thread = 14,       // 絲線：紡線機的產出，織布機唯一的原料
     }
 
     public enum PatternType : byte
@@ -21,6 +34,9 @@ namespace AlpacasOnFire.Core
         TShirt = 1,
         Pants = 2,
         Hat = 3,
+
+        // 一律往後加，不重排 —— 既有的 prefab 與 LevelDefinition 存的是數值
+        Shirt = 4,   // 襯衫：襯衫織布機的產出
     }
 
     /// <summary>衣服顏色。White = 未染色的原色。</summary>
@@ -74,6 +90,27 @@ namespace AlpacasOnFire.Core
         // 開張鈴：襯布邊上的固定設施，不進網格、不佔格子、不能搬動。
         // 敲下去就開張，然後鈴鐺自己縮起來消失；下一場要開張時會再出現。
         ServiceBell = 23,
+
+        // ---- v6 羊駝村 ----
+        // 24 與 25 是批 B 才會實作的裝備，這裡先把編號佔住 ——
+        // 列舉值一旦用過就不能重排（存檔相容），先留位子比之後插隊安全。
+        MaterialCrate  = 24,  // 素材箱：佈置時從背包擺出，互動一次跳一份羊毛
+        WeavingMachine = 25,  // T恤織布機：吃 1-2 份毛 -> 主色 + 點綴色的 T-shirt
+        WoolNpc        = 26,  // 會走動、可剃毛、也會來當顧客的 NPC
+
+        // 第二台織布機。跟 25 共用 WeavingMachine.cs，只是 _outputPattern 不同 ——
+        // 一台機器只做一種版型，想要兩種版型就得擺兩台，這是佔格子的取捨。
+        // **不要把 25 改名或改值**：它已經被寫進 prefab 與佈局存檔了。
+        WeavingMachineShirt = 27,  // 襯衫織布機
+
+        // 大動物：體型兩倍、會逃跑、身上一次掉九份毛。
+        // **不是 WoolNpc 的一種模式**，是獨立元件（WildBeast.cs），
+        // 也刻意不進 WoolNpc.All —— 那份清單是顧客系統抽人用的。
+        WildBeast = 28,
+
+        // 紡線機：第一台「人必須待在原地」的機器。
+        // 投料可以遠距（丟得進去），但要有人走過去按住左鍵才會轉。
+        SpinningMachine = 29,
     }
 
     /// <summary>
@@ -90,6 +127,9 @@ namespace AlpacasOnFire.Core
         Deploying = 1, // 佈置中：襯布已展開，可擺放機台，沒有計時
         Open      = 2, // 營業中：計時進行，機台不能移動
         Settling  = 3, // 結算中：跳出本場結算
+
+        // 一律往後加，不重排。
+        RunOver   = 4, // 沒達標，這一局結束（只有 run 模式會進到這裡）
     }
 
     /// <summary>
