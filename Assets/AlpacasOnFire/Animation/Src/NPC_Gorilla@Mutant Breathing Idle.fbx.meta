@@ -1,19 +1,9 @@
 fileFormatVersion: 2
-guid: 4dde8463e020f2644bc1c4af5e96e434
+guid: d5feb65fb8de345429a9e32478c886c0
 ModelImporter:
   serializedVersion: 24200
   internalIDToNameTable: []
-  externalObjects:
-  - first:
-      type: UnityEngine:Material
-      assembly: UnityEngine.CoreModule
-      name: MT_Bear_Facial
-    second: {fileID: 2100000, guid: 49734ac2a3f35f94783b2a5ebcc07eab, type: 2}
-  - first:
-      type: UnityEngine:Material
-      assembly: UnityEngine.CoreModule
-      name: MT_NPC
-    second: {fileID: 2100000, guid: 27203d59f88c0c840a0e670df897ef29, type: 2}
+  externalObjects: {}
   materials:
     materialImportMode: 2
     materialName: 0
@@ -32,7 +22,7 @@ ModelImporter:
     animationDoRetargetingWarnings: 0
     importAnimatedCustomProperties: 0
     importConstraints: 0
-    animationCompression: 3
+    animationCompression: 1
     animationRotationError: 0.5
     animationPositionError: 0.5
     animationScaleError: 0.5
