@@ -17,14 +17,15 @@ MonoBehaviour:
   rootMass: 4
   rootRadius: 0.2
   rootLength: 0
-  limpSeconds: 0.5
+  limpSeconds: 10
   limpMaxShare: 0.4
   struggleShare: 0.55
-  blendBackTime: 0.35
-  struggleSpring: 0.6
+  blendBackTime: 1
+  struggleSpring: 0
   maxSpring: 3000
   maxForce: 1000
   hipsSpring: 80
+  antiGravity: 0
   leashRadius: 1.5
   kickUp: 1.2
   bones:

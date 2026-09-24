@@ -325,8 +325,8 @@ namespace AlpacasOnFire.Npc
             var spec = GarmentSpec.Create(PatternType.None, WoolColor);
             for (int i = 0; i < count; i++)
             {
-                var offset = Random.insideUnitCircle * GameTuning.KnockdownWoolSpread;
-                var pos = transform.position + Vector3.up * 0.6f + new Vector3(offset.x, 0f, offset.y);
+                // 跟玩家同一套：撒在環上，不會生在自己的碰撞膠囊裡
+                var pos = transform.position + Vector3.up * 0.6f + GameTuning.KnockdownDropOffset(i, count);
                 ItemFactory.Spawn(Runner, ItemKind.Wool, spec, pos);
             }
         }

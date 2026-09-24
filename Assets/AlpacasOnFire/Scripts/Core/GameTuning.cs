@@ -330,8 +330,32 @@ namespace AlpacasOnFire.Core
         /// <summary>惡搞道具的作用距離。比一般互動（2.5）遠一點，追著打才追得到。</summary>
         public const float PrankRange           = 3.2f;
 
-        /// <summary>被打倒時，毛散落的半徑。</summary>
-        public const float KnockdownWoolSpread  = 1.2f;
+        /// <summary>
+        /// 被打倒時，毛散落的最遠距離。
+        ///
+        /// 原本是 1.2，而且是在「圓盤內」隨機撒 —— 距離 0 也在範圍內，
+        /// 毛會生在倒地者自己的碰撞膠囊裡面卡住。現在改成撒在一圈環上
+        /// （見 KnockdownDropOffset），最近也在膠囊外面。
+        /// </summary>
+        public const float KnockdownWoolSpread  = 2.4f;
+
+        /// <summary>毛散落的最近距離：身體半徑再往外留一點，保證不會生在碰撞膠囊裡。</summary>
+        public const float KnockdownWoolMinDistance = AlpacaRadius + 0.7f;
+
+        /// <summary>
+        /// 第 i 份毛（共 count 份）要掉在哪（相對倒地者的水平位移）。
+        ///
+        /// **平均分角度再加一點抖動**，不是完全隨機：完全隨機的話好幾份會疊在同一處，
+        /// 撿的時候一次只拿得到最上面那顆，看起來像卡住。
+        /// 距離在 [最近, 最遠] 之間隨機，所以不會排成一個整齊的圓。
+        /// </summary>
+        public static Vector3 KnockdownDropOffset(int i, int count)
+        {
+            float step = 360f / Mathf.Max(1, count);
+            float angle = i * step + Random.Range(-0.35f, 0.35f) * step;
+            float dist = Random.Range(KnockdownWoolMinDistance, Mathf.Max(KnockdownWoolMinDistance, KnockdownWoolSpread));
+            return Quaternion.Euler(0f, angle, 0f) * Vector3.forward * dist;
+        }
 
         /// <summary>螢幕震動的位移幅度（公尺）。只動位置不動旋轉，準心不會飄。</summary>
         public const float CameraShakeAmplitude = 0.09f;

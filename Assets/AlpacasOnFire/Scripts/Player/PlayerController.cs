@@ -879,8 +879,8 @@ namespace AlpacasOnFire.Player
 
             for (int i = 0; i < count; i++)
             {
-                var offset = Random.insideUnitCircle * GameTuning.KnockdownWoolSpread;
-                var pos = transform.position + Vector3.up * 0.6f + new Vector3(offset.x, 0f, offset.y);
+                // 撒在一圈環上而不是圓盤內：最近也在自己的碰撞膠囊外，不會生在身體裡卡住
+                var pos = transform.position + Vector3.up * 0.6f + GameTuning.KnockdownDropOffset(i, count);
                 ItemFactory.Spawn(Runner, ItemKind.Wool, default, pos);
             }
         }
