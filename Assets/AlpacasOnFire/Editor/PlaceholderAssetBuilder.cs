@@ -63,6 +63,9 @@ namespace AlpacasOnFire.EditorTools
             Step("LevelPieces", failures, () => BuildLevelPieces(elements, items, failures));
             // 擺攤系統的資產一定要排在最後：AttachDeployHandles 會改寫上面剛存好的機台 prefab
             Step("Stall", failures, () => StallAssetBuilder.Build(items, elements, failures, itemLayer));
+            // 地圖 A：七片佔位路面。不進 Catalog（地圖生成器直接引用 prefab）。
+            // 設計邊長 4 公尺，生成時自動縮放成場景的 tileSize，見 RoadPlaceholderBuilder。
+            Step("Roads", failures, RoadPlaceholderBuilder.BuildAll);
 
             var catalog = LoadOrCreateCatalog();
             catalog.playerPrefab = player != null ? player.GetComponent<NetworkObject>() : null;
