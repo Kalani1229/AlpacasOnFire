@@ -185,10 +185,11 @@ namespace AlpacasOnFire.EditorTools
 
                 for (int i = 0; i < fields.Length; i++)
                 {
-                    var p = so.FindProperty($"roadPrefabs.{fields[i]}");
+                    // roadPrefabs 已經改名成 arterialPrefabs（道路分兩級之後，舊的那組就是幹道）
+                    var p = so.FindProperty($"arterialPrefabs.{fields[i]}");
                     if (p == null)
                     {
-                        Debug.LogError($"[地圖] RandomMapBuilder 找不到欄位 roadPrefabs.{fields[i]}（RoadPrefabSet 改名了？）", builder);
+                        Debug.LogError($"[地圖] RandomMapBuilder 找不到欄位 arterialPrefabs.{fields[i]}", builder);
                         continue;
                     }
                     before.Add($"{fields[i]} = {(p.objectReferenceValue != null ? p.objectReferenceValue.name : "空")}");

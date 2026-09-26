@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using AlpacasOnFire.Core;
 using UnityEngine;
+using UnityEngine.Serialization;
 
 /// <author> Copilot (k: i didn't review the code, it works, so it's fine) </author>
 
@@ -19,8 +20,38 @@ namespace AlpacasOnFire.Map
 
         [Header("Floor and Roads")]
         public GameObject floorPrefab;
-        public RoadPrefabSet roadPrefabs;
+
+        // 原本只有一組 roadPrefabs；分成兩級之後舊的那組就是幹道。
+        // FormerlySerializedAs 讓場景上原本拉好的七格自動搬過來，不會變成空的。
+        [FormerlySerializedAs("roadPrefabs")]
+        [Tooltip("幹道（貫穿全圖的直線，車道寬）用的七片。")]
+        public RoadPrefabSet arterialPrefabs;
+
+        [Tooltip("支道（其餘的迷宮走廊，車道窄）用的七片。某一格留空就沿用幹道那一片。")]
+        public RoadPrefabSet alleyPrefabs;
+
+        [Tooltip("幹道直直穿過、左右兩側是支道的十字路口（側枝畫成支道寬度，接縫才對得上）。\n" +
+                 "留空就用 arterialPrefabs.crossroad。")]
+        public GameObject arterialCrossAlleyPrefab;
+
         [Min(0f)] public float groundY;
+
+        [Header("Arterials")]
+        [Min(0)] public int arterialRows = 2;     // 橫向幹道幾條
+        [Min(0)] public int arterialCols = 2;     // 縱向幾條
+        [Tooltip("同方向的幹道之間至少隔幾個街區。設太大的話小地圖每次都只放得下同一組位置。")]
+        [Min(1)] public int arterialMinGap = 2;
+
+        [Header("Alleys")]
+        [Tooltip("支道車道寬度，佔一格的比例（0.36 = 格子 10 公尺時車道 3.6 公尺）。\n" +
+                 "兩個地方會讀它：\n" +
+                 "・美術路面（選單 6）照這個寬度畫支道車道，支道不鋪人行道\n" +
+                 "・支道兩旁的建築與小物件可以伸進支道那一格，一直到路緣外側為止\n" +
+                 "改了之後要重跑選單 6 讓路面跟著變。設 1 = 不讓建築伸進支道。")]
+        [Range(0.2f, 1f)] public float alleyLaneRatio = 0.36f;
+
+        /// <summary>路緣寬度，佔一格的比例。美術路面與「建築能伸多遠」共用，兩邊才會剛好貼齊。</summary>
+        public const float CurbFraction = 0.05f;
 
         [Header("Buildings")]
         public GameObject[] buildingPrefabs;
@@ -90,7 +121,13 @@ namespace AlpacasOnFire.Map
             generatedRoot = generated.transform;
 
             bool[,] mazeRoads = BuildMaze(mazeWidth, mazeHeight, random);
-            bool[,] roads = ExpandRoadMap(mazeRoads, spacing, width, height);
+            bool[,] expanded = ExpandRoadMap(mazeRoads, spacing, width, height);
+
+            // 道路分級：RoadType[,] 是唯一的真相，下游（GetRoadMask、FindBlocks、廣場、外牆）
+            // 讀的是從它衍生的 bool[,]，那幾支完全不用改。
+            RoadType[,] roadTypes = ClassifyRoads(expanded, random, mazeWidth, mazeHeight, spacing, width, height);
+            bool[,] roads = ToRoadMask(roadTypes, width, height);
+            _roadTypes = roadTypes;   // IsInsideBlock 要知道哪些格子是支道
 
             // 街區與廣場要在鋪地面之前算出來 —— 廣場的地面跟一般地面不同。
             // （FindBlocks 不用亂數，所以提前呼叫不會改變亂數序列；
@@ -100,7 +137,7 @@ namespace AlpacasOnFire.Map
             var plazaCells = PickPlazas(blocks, roads, random, width, height);
 
             GenerateFloor(width, height, plazaCells);
-            GenerateRoads(roads, width, height);
+            GenerateRoads(roads, roadTypes, width, height);
 
             foreach (var block in blocks)
                 GenerateBlockContents(block, random, width, height);
@@ -109,11 +146,23 @@ namespace AlpacasOnFire.Map
 
             if (blocks.Count == 0)
                 Debug.LogWarning("RandomMapBuilder found no enclosed blocks. Increase map size or cycle chance.", this);
+
+            LogSummary(roadTypes, width, height);
         }
 
         [ContextMenu("Clear Generated Map")]
         public void ClearGeneratedMap()
         {
+            // 除了記住的那一份，也把底下所有叫 "Generated Map" 的都清掉 ——
+            // 萬一有一份沒被記住（Undo、生成到一半出錯），它會變成孤兒，按 Clear 永遠清不到。
+            for (int i = transform.childCount - 1; i >= 0; i--)
+            {
+                var child = transform.GetChild(i);
+                if (child == generatedRoot || child.name != "Generated Map") continue;
+                if (Application.isPlaying) Destroy(child.gameObject);
+                else DestroyImmediate(child.gameObject);
+            }
+
             if (generatedRoot == null) return;
 
             if (Application.isPlaying) Destroy(generatedRoot.gameObject);
@@ -267,9 +316,15 @@ namespace AlpacasOnFire.Map
             return block;
         }
 
-        private void GenerateRoads(bool[,] roads, int width, int height)
+        /// <summary>
+        /// 鋪路面。mask -> 哪一片、轉幾度的邏輯沒變，只是先看這一格是哪一級，決定從哪一組拿。
+        ///
+        /// 特例：「幹道直直穿過、左右兩側是支道」的十字。mask 跟幹道碰幹道一樣是 4，
+        /// 但側枝要畫成支道寬度，不然每個這種路口都有錯位 —— 而且它比幹道碰幹道多得多。
+        /// </summary>
+        private void GenerateRoads(bool[,] roads, RoadType[,] types, int width, int height)
         {
-            if (roadPrefabs == null) return;
+            if (arterialPrefabs == null && alleyPrefabs == null && arterialCrossAlleyPrefab == null) return;
 
             for (int y = 0; y < height; y++)
             {
@@ -278,7 +333,27 @@ namespace AlpacasOnFire.Map
                     if (!roads[x, y]) continue;
 
                     int mask = GetRoadMask(roads, x, y, width, height);
-                    var prefab = GetRoadPrefab(mask, out Quaternion rotation);
+                    var type = types[x, y];
+                    GameObject prefab;
+                    Quaternion rotation;
+
+                    if (type == RoadType.Arterial && arterialCrossAlleyPrefab != null
+                        && IsArterialThroughAlleys(types, x, y, width, height, out bool alongX))
+                    {
+                        // 基準：幹道南北向、支道從東西進來；幹道是東西向就轉 90°
+                        prefab = arterialCrossAlleyPrefab;
+                        rotation = alongX ? Quaternion.Euler(0f, 90f, 0f) : Quaternion.identity;
+                    }
+                    else
+                    {
+                        var set = type == RoadType.Arterial ? arterialPrefabs : alleyPrefabs;
+                        prefab = GetRoadPrefab(mask, set, out rotation);
+
+                        // 支道那組還沒拉好就沿用幹道那一片，至少地上有路
+                        if (prefab == null && type == RoadType.Alley)
+                            prefab = GetRoadPrefab(mask, arterialPrefabs, out rotation);
+                    }
+
                     if (prefab == null) continue;
 
                     var instance = InstantiateGenerated(prefab, GridToWorld(x, y, width, height), rotation, "Road");
@@ -432,51 +507,86 @@ namespace AlpacasOnFire.Map
             return instance;
         }
 
+        /// <summary>
+        /// 這個包圍盒放得進這個街區嗎。
+        ///
+        /// **支道變窄就在這裡。** 支道只畫中間的車道、不鋪人行道；車道兩旁那一段
+        /// 讓街區的建築與小物件可以伸進去，一直到路緣外側為止：
+        ///   可以伸的量 = 格子寬 × (1 − 車道比例) / 2 − 路緣寬
+        ///
+        /// 規則分兩層：
+        ///   1. 包圍盒往內縮掉那段量之後，必須完全在街區裡（就是原本的規則）
+        ///   2. 完整的包圍盒碰到的格子，只能是這個街區或**支道**
+        /// 所以伸出去的那一截只會進支道：幹道、廣場、外牆、別的街區都不行。
+        ///
+        /// 支道的路口（十字、T 字）四個角落本來就不是車道，建築的角伸進去也碰不到車道。
+        /// </summary>
         private bool IsInsideBlock(Bounds bounds, BlockRegion block, int width, int height)
         {
-            int minX = WorldToGridX(bounds.min.x, width);
-            int maxX = WorldToGridX(bounds.max.x, width);
-            int minY = WorldToGridZ(bounds.min.z, height);
-            int maxY = WorldToGridZ(bounds.max.z, height);
+            float encroach = _roadTypes == null ? 0f
+                : Mathf.Max(0f, tileSize * ((1f - alleyLaneRatio) * 0.5f - CurbFraction));
 
-            for (int y = minY; y <= maxY; y++)
+            var core = bounds;
+            if (encroach > 0f)
             {
-                for (int x = minX; x <= maxX; x++)
-                {
-                    if (!block.Contains(x, y)) return false;
-                }
+                var size = core.size;
+                size.x = Mathf.Max(0.01f, size.x - 2f * encroach);
+                size.z = Mathf.Max(0.01f, size.z - 2f * encroach);
+                core.size = size;   // 中心不變，四周各縮 encroach
             }
 
+            if (!AllCells(core, width, height, (x, y) => block.Contains(x, y))) return false;
+            if (encroach <= 0f) return true;
+
+            return AllCells(bounds, width, height, (x, y) =>
+                block.Contains(x, y)
+                || (x >= 0 && y >= 0 && x < width && y < height && _roadTypes[x, y] == RoadType.Alley));
+        }
+
+        private bool AllCells(Bounds b, int width, int height, Func<int, int, bool> ok)
+        {
+            int minX = WorldToGridX(b.min.x, width);
+            int maxX = WorldToGridX(b.max.x, width);
+            int minY = WorldToGridZ(b.min.z, height);
+            int maxY = WorldToGridZ(b.max.z, height);
+
+            for (int y = minY; y <= maxY; y++)
+                for (int x = minX; x <= maxX; x++)
+                    if (!ok(x, y)) return false;
             return true;
         }
 
-        private GameObject GetRoadPrefab(int mask, out Quaternion rotation)
+        private RoadType[,] _roadTypes;
+
+        // 唯一的改動：「從哪一組拿」變成參數。mask -> 哪一片、轉幾度一行都沒動。
+        private GameObject GetRoadPrefab(int mask, RoadPrefabSet set, out Quaternion rotation)
         {
             rotation = Quaternion.identity;
+            if (set == null) return null;
             int count = CountBits(mask);
 
-            if (count == 4) return roadPrefabs.crossroad;
+            if (count == 4) return set.crossroad;
             if (count == 3)
             {
                 rotation = RotationForMask(mask, 0b0111);
-                return roadPrefabs.tJunction;
+                return set.tJunction;
             }
 
             if (count == 2)
             {
-                if (mask == 0b0101) return roadPrefabs.vertical;
-                if (mask == 0b1010) return roadPrefabs.horizontal;
+                if (mask == 0b0101) return set.vertical;
+                if (mask == 0b1010) return set.horizontal;
                 rotation = RotationForMask(mask, 0b1001);
-                return roadPrefabs.corner;
+                return set.corner;
             }
 
             if (count == 1)
             {
                 rotation = RotationForMask(mask, 0b0001);
-                return roadPrefabs.deadEnd;
+                return set.deadEnd;
             }
 
-            return roadPrefabs.isolated;
+            return set.isolated;
         }
 
         private static Quaternion RotationForMask(int mask, int baseMask)
@@ -835,10 +945,13 @@ namespace AlpacasOnFire.Map
                     {
                         wall = GameObject.CreatePrimitive(PrimitiveType.Cube);
                         wall.name = "Border - Wall";
-                        wall.transform.SetParent(generatedRoot, true);
                         float side = tileSize * borderOverlap;
+                        // **先在世界空間定好大小與位置，再掛上去（worldPositionStays）。**
+                        // 反過來做的話 localScale 會乘上父物件的縮放 —— 場景的 Tile 是 (60, 1.2, 60)，
+                        // 11.5 公尺的方塊會變成 690 公尺寬，480 顆連成一整片蓋住整張地圖。
                         wall.transform.localScale = new Vector3(side, borderMinHeight, side);
                         wall.transform.position = cellCenter + Vector3.up * (borderMinHeight * 0.5f);
+                        wall.transform.SetParent(generatedRoot, true);
                         fallbackTint ??= MakeTintBlock(new Color(0.55f, 0.52f, 0.5f));
                         wall.GetComponent<Renderer>().SetPropertyBlock(fallbackTint);
                     }
@@ -910,6 +1023,180 @@ namespace AlpacasOnFire.Map
             var box = wall.AddComponent<BoxCollider>();
             box.center = local.center;
             box.size = local.size;
+        }
+
+        // ================================================================ 道路分級（幹道／支道）
+
+        /// <summary>
+        /// 1. 迷宮的走廊全部標成 Alley
+        /// 2. 挑 arterialRows 條橫線 + arterialCols 條縱線，整條改成 Arterial
+        /// 3. 清掉掛在幹道上、長度 ≤ 2 格的支道死路
+        /// 幹道只會**加**路、第 3 步只剪葉子，所以連通性不會被破壞。
+        /// </summary>
+        private RoadType[,] ClassifyRoads(bool[,] roads, System.Random random,
+                                          int mazeWidth, int mazeHeight, int spacing, int width, int height)
+        {
+            var types = new RoadType[width, height];
+            for (int y = 0; y < height; y++)
+                for (int x = 0; x < width; x++)
+                    types[x, y] = roads[x, y] ? RoadType.Alley : RoadType.None;
+
+            // 幹道一路延伸到外牆內側。停在最外面那條路的話，端點會變成
+            // 「支道穿過、幹道從側面進來」的 T 字，選片會選反；延伸到牆，端點一定是死路。
+            int t = Mathf.Min(BorderThicknessClamped(width, height), spacing);
+
+            foreach (int k in PickArterialLines(mazeHeight, arterialRows, random, "橫向"))
+                for (int x = t; x <= width - 1 - t; x++) types[x, k * spacing] = RoadType.Arterial;
+
+            foreach (int k in PickArterialLines(mazeWidth, arterialCols, random, "縱向"))
+                for (int y = t; y <= height - 1 - t; y++) types[k * spacing, y] = RoadType.Arterial;
+
+            PruneStubs(types, width, height);
+            return types;
+        }
+
+        /// <summary>
+        /// 只從迷宮的「房間列」（奇數索引）挑 —— 沿著既有走廊走、不會從街區中間劈過去。
+        /// 不挑最外面那兩列。同方向之間至少隔 arterialMinGap 個街區（索引差 2 × gap）。
+        /// 洗幾次取挑得最多的那次：只洗一次的話，先挑到中間那列就可能把兩側都擋掉。
+        /// </summary>
+        private List<int> PickArterialLines(int mazeSize, int count, System.Random random, string label)
+        {
+            var result = new List<int>();
+            if (count <= 0) return result;
+
+            var candidates = new List<int>();
+            for (int k = 3; k <= mazeSize - 4; k += 2) candidates.Add(k);
+            int minDelta = 2 * Mathf.Max(1, arterialMinGap);
+
+            for (int attempt = 0; attempt < 16 && result.Count < count; attempt++)
+            {
+                var order = new List<int>(candidates);
+                for (int i = order.Count - 1; i > 0; i--)
+                {
+                    int j = random.Next(i + 1);
+                    (order[i], order[j]) = (order[j], order[i]);
+                }
+
+                var picked = new List<int>();
+                foreach (int k in order)
+                {
+                    if (picked.Count >= count) break;
+                    bool ok = true;
+                    foreach (int p in picked)
+                        if (Mathf.Abs(k - p) < minDelta) { ok = false; break; }
+                    if (ok) picked.Add(k);
+                }
+                if (picked.Count > result.Count) result = picked;
+            }
+
+            result.Sort();
+            if (result.Count < count)
+                Debug.LogWarning($"[地圖] {label}幹道只挑得出 {result.Count} / {count} 條（可選 {candidates.Count} 列、" +
+                                 $"間距至少 {arterialMinGap} 個街區）。調大地圖或調小 arterialMinGap。", this);
+            return result;
+        }
+
+        private static void PruneStubs(RoadType[,] types, int width, int height)
+        {
+            var remove = new List<Vector2Int>();
+            var chain = new List<Vector2Int>(3);
+
+            for (int y = 0; y < height; y++)
+                for (int x = 0; x < width; x++)
+                {
+                    if (types[x, y] != RoadType.Alley || RoadDegree(types, x, y, width, height) != 1) continue;
+
+                    chain.Clear();
+                    var prev = new Vector2Int(-1, -1);
+                    var cur = new Vector2Int(x, y);
+                    while (true)
+                    {
+                        chain.Add(cur);
+                        if (chain.Count > 2) break;
+                        var next = NextAlong(types, cur, prev, width, height);
+                        if (next == null) break;
+                        prev = cur;
+                        cur = next.Value;
+                        if (types[cur.x, cur.y] == RoadType.Arterial) { remove.AddRange(chain); break; }
+                        if (RoadDegree(types, cur.x, cur.y, width, height) != 2) break;
+                    }
+                }
+
+            foreach (var c in remove) types[c.x, c.y] = RoadType.None;
+        }
+
+        private static int RoadDegree(RoadType[,] types, int x, int y, int width, int height)
+        {
+            int n = 0;
+            foreach (var d in CardinalDirections)
+            {
+                int nx = x + d.x, ny = y + d.y;
+                if (nx >= 0 && ny >= 0 && nx < width && ny < height && types[nx, ny] != RoadType.None) n++;
+            }
+            return n;
+        }
+
+        private static Vector2Int? NextAlong(RoadType[,] types, Vector2Int cur, Vector2Int prev, int width, int height)
+        {
+            foreach (var d in CardinalDirections)
+            {
+                var n = cur + d;
+                if (n == prev || n.x < 0 || n.y < 0 || n.x >= width || n.y >= height) continue;
+                if (types[n.x, n.y] != RoadType.None) return n;
+            }
+            return null;
+        }
+
+        private static bool[,] ToRoadMask(RoadType[,] types, int width, int height)
+        {
+            var mask = new bool[width, height];
+            for (int y = 0; y < height; y++)
+                for (int x = 0; x < width; x++)
+                    mask[x, y] = types[x, y] != RoadType.None;
+            return mask;
+        }
+
+        /// <summary>幹道直直穿過、兩側都是支道的十字。alongX = 幹道東西向。幹道碰幹道回 false。</summary>
+        private static bool IsArterialThroughAlleys(RoadType[,] types, int x, int y, int width, int height, out bool alongX)
+        {
+            alongX = false;
+            RoadType At(int ax, int ay) =>
+                ax >= 0 && ay >= 0 && ax < width && ay < height ? types[ax, ay] : RoadType.None;
+
+            var n = At(x, y + 1); var s = At(x, y - 1);
+            var e = At(x + 1, y); var w = At(x - 1, y);
+            if (n == RoadType.None || s == RoadType.None || e == RoadType.None || w == RoadType.None) return false;
+
+            bool ns = n == RoadType.Arterial && s == RoadType.Arterial;
+            bool ew = e == RoadType.Arterial && w == RoadType.Arterial;
+            if (ns == ew) return false;
+            alongX = ew;
+            return true;
+        }
+
+        /// <summary>每次生成印一行摘要：幹道／支道格數、兩組路面各填了幾片。</summary>
+        private void LogSummary(RoadType[,] types, int width, int height)
+        {
+            int arterial = 0, alley = 0;
+            foreach (var t in types)
+            {
+                if (t == RoadType.Arterial) arterial++;
+                else if (t == RoadType.Alley) alley++;
+            }
+
+            string Set(RoadPrefabSet s)
+            {
+                if (s == null) return "0/7";
+                int n = 0; string first = null;
+                foreach (var p in new[] { s.horizontal, s.vertical, s.corner, s.tJunction, s.crossroad, s.deadEnd, s.isolated })
+                    if (p != null) { n++; first ??= p.name; }
+                return n == 0 ? "0/7" : $"{n}/7（{first}…）";
+            }
+
+            Debug.Log($"[地圖] 生成完成：網格 {width}×{height}（{width * tileSize:0} 公尺）、幹道 {arterial} 格、支道 {alley} 格。\n" +
+                      $"路面：幹道組 {Set(arterialPrefabs)}、支道組 {Set(alleyPrefabs)}、" +
+                      $"幹道穿過支道 {(arterialCrossAlleyPrefab != null ? arterialCrossAlleyPrefab.name : "未指定")}。", this);
         }
 
         // private variables ---
