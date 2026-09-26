@@ -722,6 +722,7 @@ namespace AlpacasOnFire.Player
         /// </summary>
         private readonly List<(Renderer renderer, int index)> _tintTargets = new();
         private bool _tintTargetsCached;
+        private bool _tintCleared;
 
         private void CacheTintTargets()
         {
@@ -768,6 +769,21 @@ namespace AlpacasOnFire.Player
         {
             CacheTintTargets();
             if (_tintTargets.Count == 0) return;
+
+            if (!GameTuning.TintPlayersByIndex)
+            {
+                // 不上識別色：把之前可能塗過的顏色清掉一次，之後就不再碰，材質顯示原色
+                if (_tintCleared) return;
+                _tintCleared = true;
+                for (int i = 0; i < _tintTargets.Count; i++)
+                {
+                    var (r, index) = _tintTargets[i];
+                    if (r == null) continue;
+                    if (index < 0) r.SetPropertyBlock(null);
+                    else r.SetPropertyBlock(null, index);
+                }
+                return;
+            }
 
             var color = PlaceholderPalette.PlayerColor(ColorIndex);
             for (int i = 0; i < _tintTargets.Count; i++)

@@ -560,5 +560,11 @@ namespace AlpacasOnFire.Core
         // static readonly 而不是 const：const false 會讓編譯器把後面的程式碼判成
         // 「永遠跑不到」並吼一排 CS0162 警告
         public static readonly bool StaggerCameraTilt = false;
+
+        /// <summary>
+        /// 用顏色區分 1P～4P。先關掉，羊駝保留模型原色。
+        /// 要恢復把這裡改回 true 就好（ColorIndex 仍照常分配，Alpaca_P1… 的命名也還在）。
+        /// </summary>
+        public static readonly bool TintPlayersByIndex = false;
     }
 }
