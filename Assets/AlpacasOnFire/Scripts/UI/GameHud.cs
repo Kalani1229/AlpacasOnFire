@@ -407,7 +407,7 @@ namespace AlpacasOnFire.UI
             }
 
             // 失控中不給任何互動提示 —— 按了也沒用，顯示出來只會讓人一直按
-            if (p.IsStaggered)
+            if (p.IsIncapacitated)
             {
                 _promptLabel.text = "站不起來…";
                 _carryLabel.text = "";

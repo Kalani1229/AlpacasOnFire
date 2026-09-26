@@ -211,7 +211,7 @@ namespace AlpacasOnFire.Player
 
                 // 失控中不能做任何事：不能互動、不能丟、不能用工具。
                 // 移動已經在 Move() 裡被吃掉了，這裡擋的是動作。
-                if (HasStateAuthority && !IsStaggered)
+                if (HasStateAuthority && !IsIncapacitated)
                 {
                     var ctx = _interactor.BuildContext();
 
@@ -394,6 +394,34 @@ namespace AlpacasOnFire.Player
         /// </summary>
         public bool IsStaggered => _stagger != null && _stagger.Staggered;
 
+        /// <summary>
+        /// 倒地結束、但 ragdoll 還在「混回站姿」的那一小段。
+        ///
+        /// 失控計時器一到，ragdoll 才開始站回去（blendBackTime），
+        /// 如果這時就把控制還給玩家，會看到半躺的羊駝已經在滑行。
+        /// 這裡用同步的 StaggerTimer 的結束 tick 往後推 blendBackTime 算出來 ——
+        /// **不新增 [Networked]**，兩端算出來的 tick 一樣，重模擬也一致。
+        /// </summary>
+        public bool IsRecovering
+        {
+            get
+            {
+                if (_stagger == null || Runner == null || _ragdoll == null) return false;
+                var end = _stagger.StaggerTimer.TargetTick;
+                if (!end.HasValue) return false;
+
+                float secs = _ragdoll.BlendBackSeconds;
+                if (secs <= 0f) return false;
+
+                int extra = Mathf.CeilToInt(secs / Runner.DeltaTime);
+                int tick = Runner.Tick;
+                return tick >= end.Value && tick < end.Value + extra;
+            }
+        }
+
+        /// <summary>從昏倒到完全站好為止都不能操作。所有「擋操作」的地方用這個，視覺仍看 IsStaggered。</summary>
+        public bool IsIncapacitated => IsStaggered || IsRecovering;
+
         private void Move(Vector2 moveInput)
         {
             if (_ncc == null) return;
@@ -405,7 +433,7 @@ namespace AlpacasOnFire.Player
 
             // 失控中把輸入整個丟掉。注意**不是直接 return** ——
             // 還是要呼叫 Move()，重力與擊退才會繼續作用，不然人會定在半空中。
-            if (IsStaggered) moveInput = Vector2.zero;
+            if (IsIncapacitated) moveInput = Vector2.zero;
 
             // 移動方向永遠相對角色目前朝向。
             // 擺攤期間**不再有空氣牆** —— 攤位擺開之後玩家可以自由走出去。
@@ -504,7 +532,7 @@ namespace AlpacasOnFire.Player
         public void TrySpit(in InteractionContext ctx)
         {
             if (!HasStateAuthority) return;
-            if (IsStaggered) return;
+            if (IsIncapacitated) return;
             if (!SpitTimer.ExpiredOrNotRunning(Runner)) return;
 
             // 冷卻先算 —— 噴空氣也要算，不然玩家會用亂噴來確認前面有沒有人

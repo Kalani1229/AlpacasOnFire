@@ -109,6 +109,12 @@ namespace AlpacasOnFire.Player
         /// <summary>現在正在演 ragdoll（含混回動畫的尾巴）。</summary>
         public bool Playing => _active || _blendBack > 0f;
 
+        /// <summary>
+        /// 失控結束後「混回站姿」要多久。PlayerController 拿這個延長鎖操作的時間 ——
+        /// 讀的是 profile 的設定值（兩端一樣），不是本機演到哪，所以不會讓模擬依賴畫面。
+        /// </summary>
+        public float BlendBackSeconds => Ready && _profile != null ? Mathf.Max(0f, _profile.blendBackTime) : 0f;
+
         // ================================================================ 建置
 
         private void Awake()
