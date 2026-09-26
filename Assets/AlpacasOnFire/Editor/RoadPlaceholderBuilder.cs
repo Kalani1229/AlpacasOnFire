@@ -133,6 +133,133 @@ namespace AlpacasOnFire.EditorTools
             SavePrefab(root, name);
         }
 
+        // ================================================================ 支道（窄版）
+
+        /// <summary>
+        /// 支道七片：跟幹道同一套樣式（深灰柏油、黃色中線、淺色路緣），只是車道窄。
+        ///
+        /// **為什麼不是直接把幹道那七片縮窄：** 直路縮寬度沒問題，但轉角、T 字、十字的
+        /// 每一條臂都要伸到格子邊緣才接得上隔壁那一格 —— 整片縮窄會把臂也縮短，
+        /// 路口跟旁邊的直路之間就斷一截。所以窄版是重新組的：
+        /// 中央一塊方形 + 每個接口一條伸到邊緣的臂，路緣貼在車道外側。
+        ///
+        /// 車道以外**不鋪任何東西**，露出底下的地板，留給兩旁的建築伸過來佔
+        /// （RandomMapBuilder.IsInsideBlock）。路緣寬度用 RandomMapBuilder.CurbFraction，
+        /// 建築伸到路緣外側為止，兩邊剛好貼齊。
+        /// </summary>
+        private static readonly (string name, Side open)[] AlleyPieces =
+        {
+            ("Road_Alley_Horizontal", Side.E | Side.W),
+            ("Road_Alley_Vertical",   Side.N | Side.S),
+            ("Road_Alley_Corner",     Side.N | Side.W),
+            ("Road_Alley_TJunction",  Side.N | Side.E | Side.S),
+            ("Road_Alley_Crossroad",  Side.All),
+            ("Road_Alley_DeadEnd",    Side.N),
+            ("Road_Alley_Isolated",   Side.None),
+        };
+
+        /// <summary>產出窄版支道七片。laneRatio = 車道寬佔一格的比例（RandomMapBuilder.alleyLaneRatio）。</summary>
+        public static void BuildAlleys(float laneRatio)
+        {
+            var asphalt = Mat("M_RoadAsphalt", AsphaltColor);
+            var curb = Mat("M_RoadCurb", CurbColor);
+            var line = Mat("M_RoadLine", LineColor, 0.4f);
+
+            float hw = Mathf.Clamp(laneRatio, 0.1f, 1f) * DesignTileSize * 0.5f;
+            foreach (var (name, open) in AlleyPieces)
+                BuildAlleyPiece(name, open, hw, asphalt, curb, line);
+        }
+
+        private static void BuildAlleyPiece(string name, Side open, float hw,
+                                            Material asphalt, Material curb, Material line)
+        {
+            const float s = DesignTileSize;
+            float half = s * 0.5f;
+            float c = RandomMapBuilder.CurbFraction * s;
+            float top = SlabY + SlabThickness * 0.5f;
+            var sides = new[] { Side.N, Side.E, Side.S, Side.W };
+
+            var root = new GameObject(name);
+
+            // 車道：中央方塊 + 每個接口一條伸到格子邊緣的臂
+            Prim(PrimitiveType.Cube, "Asphalt_Center", root.transform, new Vector3(0f, SlabY, 0f),
+                 new Vector3(hw * 2f, SlabThickness, hw * 2f), asphalt, keepCollider: false);
+
+            float armLen = half - hw;
+            foreach (var side in sides)
+            {
+                if ((open & side) == 0 || armLen <= 0f) continue;
+                var d = Dir(side);
+                bool alongZ = side == Side.N || side == Side.S;
+                var pos = new Vector3(d.x * (hw + armLen * 0.5f), SlabY, d.z * (hw + armLen * 0.5f));
+                var scale = alongZ ? new Vector3(hw * 2f, SlabThickness, armLen)
+                                   : new Vector3(armLen, SlabThickness, hw * 2f);
+                Prim(PrimitiveType.Cube, $"Asphalt_{side}", root.transform, pos, scale, asphalt, keepCollider: false);
+            }
+
+            // 路緣：貼在車道外側。三層（臂的兩側、中央方塊封住的邊、四個角）彼此有一點重疊，
+            // 各差 1 毫米高，重疊處不會閃爍。
+            float curbH = SlabThickness + 0.002f;
+            foreach (var side in sides)
+            {
+                var d = Dir(side);
+                bool alongZ = side == Side.N || side == Side.S;
+
+                if ((open & side) != 0 && armLen > 0f)
+                {
+                    // 臂的兩側
+                    foreach (float sgn in new[] { -1f, 1f })
+                    {
+                        float off = sgn * (hw + c * 0.5f);
+                        float mid = hw + armLen * 0.5f;
+                        var pos = alongZ ? new Vector3(off, SlabY + 0.001f, d.z * mid)
+                                         : new Vector3(d.x * mid, SlabY + 0.001f, off);
+                        var scale = alongZ ? new Vector3(c, curbH, armLen) : new Vector3(armLen, curbH, c);
+                        Prim(PrimitiveType.Cube, $"Curb_{side}_{(sgn < 0 ? "a" : "b")}", root.transform,
+                             pos, scale, curb, keepCollider: false);
+                    }
+                }
+                else
+                {
+                    // 中央方塊封住的那一邊
+                    var pos = new Vector3(d.x * (hw + c * 0.5f), SlabY + 0.002f, d.z * (hw + c * 0.5f));
+                    var scale = alongZ ? new Vector3(hw * 2f, curbH + 0.001f, c) : new Vector3(c, curbH + 0.001f, hw * 2f);
+                    Prim(PrimitiveType.Cube, $"Curb_{side}", root.transform, pos, scale, curb, keepCollider: false);
+                }
+            }
+
+            // 四個角各補一小塊，讓路緣轉角接起來
+            foreach (float sx in new[] { -1f, 1f })
+                foreach (float sz in new[] { -1f, 1f })
+                    Prim(PrimitiveType.Cube, "Curb_Corner", root.transform,
+                         new Vector3(sx * (hw + c * 0.5f), SlabY + 0.003f, sz * (hw + c * 0.5f)),
+                         new Vector3(c, curbH + 0.002f, c), curb, keepCollider: false);
+
+            // 標線：跟幹道一樣從中心往每個接口畫到邊緣
+            float lineY = top + 0.0015f;
+            const float lineH = 0.003f;
+            float len = half + LineWidth * 0.5f;
+            foreach (var side in sides)
+            {
+                if ((open & side) == 0) continue;
+                var d = Dir(side);
+                bool alongZ = side == Side.N || side == Side.S;
+                var pos = new Vector3(d.x * (len * 0.5f - LineWidth * 0.5f), lineY, d.z * (len * 0.5f - LineWidth * 0.5f));
+                var scale = alongZ ? new Vector3(LineWidth, lineH, len) : new Vector3(len, lineH, LineWidth);
+                Prim(PrimitiveType.Cube, $"Line_{side}", root.transform, pos, scale, line, keepCollider: false);
+            }
+
+            if (open == Side.N)
+                Prim(PrimitiveType.Cube, "Line_Cap", root.transform, new Vector3(0f, lineY, 0f),
+                     new Vector3(hw * 1.2f, lineH, LineWidth * 1.6f), line, keepCollider: false);
+            if (open == Side.None)
+                Prim(PrimitiveType.Cube, "Line_Dot", root.transform, new Vector3(0f, lineY, 0f),
+                     new Vector3(0.4f, lineH, 0.4f), line, keepCollider: false);
+
+            root.AddComponent<RoadTileInfo>().designTileSize = s;
+            SavePrefab(root, name);
+        }
+
         private static Vector3 Dir(Side side) => side switch
         {
             Side.N => Vector3.forward,
@@ -180,30 +307,44 @@ namespace AlpacasOnFire.EditorTools
 
             foreach (var builder in builders)
             {
+                // 支道每次都照場景目前的 alleyLaneRatio 重做 —— 改了寬度重跑這個選單就會跟著變
+                BuildAlleys(builder.alleyLaneRatio);
+                AssetDatabase.SaveAssets();
+
                 var so = new SerializedObject(builder);
                 var before = new List<string>();
 
                 for (int i = 0; i < fields.Length; i++)
                 {
-                    // roadPrefabs 已經改名成 arterialPrefabs（道路分兩級之後，舊的那組就是幹道）
-                    var p = so.FindProperty($"arterialPrefabs.{fields[i]}");
-                    if (p == null)
-                    {
-                        Debug.LogError($"[地圖] RandomMapBuilder 找不到欄位 arterialPrefabs.{fields[i]}", builder);
-                        continue;
-                    }
-                    before.Add($"{fields[i]} = {(p.objectReferenceValue != null ? p.objectReferenceValue.name : "空")}");
-                    p.objectReferenceValue = prefabs[Pieces[i].name];
+                    // 幹道：原本那七片（整格柏油）
+                    AssignOne(so, $"arterialPrefabs.{fields[i]}", LoadPrefab(Pieces[i].name), before, builder);
+                    // 支道：同樣式的窄版
+                    AssignOne(so, $"alleyPrefabs.{fields[i]}", LoadPrefab(AlleyPieces[i].name), before, builder);
                 }
+
+                // 幹道是整格柏油，支道從任何一側接進來都接得上，不需要「幹道穿過支道」那片特例。
+                // 清掉它，不然會沿用之前美術路面那一片。
+                AssignOne(so, "arterialCrossAlleyPrefab", null, before, builder);
 
                 so.ApplyModifiedProperties();
                 EditorSceneManager.MarkSceneDirty(builder.gameObject.scene);
 
-                Debug.Log($"[地圖] 已把七片佔位路面指派給 {builder.name}（場景 {builder.gameObject.scene.name}，" +
-                          $"tileSize {builder.tileSize}，路面會自動縮放成這個大小）。\n" +
+                Debug.Log($"[地圖] 已指派佔位路面給 {builder.name}：幹道 7 片（整格）、" +
+                          $"支道 7 片（車道 {builder.alleyLaneRatio * builder.tileSize:0.#} 公尺，沒有人行道）。\n" +
                           "覆蓋前的指派：\n  " + string.Join("\n  ", before) +
-                          "\n記得存檔場景。重新生成地圖：在 RandomMapBuilder 上按右鍵 > Generate Map。", builder);
+                          "\n**記得存檔場景（Cmd+S）**，再 Clear Generated Map → Generate Map。", builder);
             }
+        }
+
+        private static GameObject LoadPrefab(string name)
+            => AssetDatabase.LoadAssetAtPath<GameObject>($"{PrefabsDir}/{name}.prefab");
+
+        private static void AssignOne(SerializedObject so, string path, GameObject value, List<string> log, Object ctx)
+        {
+            var p = so.FindProperty(path);
+            if (p == null) { Debug.LogError($"[地圖] RandomMapBuilder 找不到欄位 {path}", ctx); return; }
+            log.Add($"{path} = {(p.objectReferenceValue != null ? p.objectReferenceValue.name : "空")}");
+            p.objectReferenceValue = value;
         }
 
         private static Dictionary<string, GameObject> LoadPieces()
