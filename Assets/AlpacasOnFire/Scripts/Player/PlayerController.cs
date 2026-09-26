@@ -413,9 +413,11 @@ namespace AlpacasOnFire.Player
                 float secs = _ragdoll.BlendBackSeconds;
                 if (secs <= 0f) return false;
 
+                // Tick 跟 int 兩個方向都能隱式轉換，混著比會模稜兩可 —— 先全部轉成 int
+                int endTick = (int)end.Value;
                 int extra = Mathf.CeilToInt(secs / Runner.DeltaTime);
-                int tick = Runner.Tick;
-                return tick >= end.Value && tick < end.Value + extra;
+                int tick = (int)Runner.Tick;
+                return tick >= endTick && tick < endTick + extra;
             }
         }
 
@@ -505,6 +507,12 @@ namespace AlpacasOnFire.Player
 
         /// <summary>冷卻好了沒。HUD 要用。</summary>
         public bool SpitReady => SpitTimer.ExpiredOrNotRunning(Runner);
+
+        /// <summary>
+        /// 這次吐口水冷卻結束的 tick。每吐一次就換一個值 —— PlayerAnimator 看它「變了」
+        /// 就知道剛吐過，播吐口水動畫。讀的是同步的 SpitTimer，所以隊友那端也看得到。
+        /// </summary>
+        public int? SpitStamp => SpitTimer.TargetTick.HasValue ? (int?)(int)SpitTimer.TargetTick.Value : null;
 
         /// <summary>冷卻的剩餘比例 0~1（1 = 剛吐完）。</summary>
         public float SpitCooldown01
