@@ -80,6 +80,10 @@ namespace AlpacasOnFire.Npc
                 HomePoint = transform.position;
                 Fleece = GameTuning.NpcFleeceMax;
                 EnterPause();
+
+                // 場景建置器放的座標是寫死的，在程序生成的城市裡可能落在建築裡 ——
+                // 第一個 tick 重新落位（見 FixedUpdateNetwork）
+                _needsRelocate = true;
             }
 
             ApplyColour(true);
@@ -117,6 +121,12 @@ namespace AlpacasOnFire.Npc
         public override void FixedUpdateNetwork()
         {
             if (!HasStateAuthority) return;
+
+            if (_needsRelocate && Runner.IsForward)
+            {
+                _needsRelocate = false;
+                RelocateToCity();
+            }
 
             TickRegen();
 
@@ -174,11 +184,89 @@ namespace AlpacasOnFire.Npc
             if (to.magnitude <= GameTuning.NpcArriveThreshold)
             {
                 EnterPause();
+                _path.Clear();
                 _ncc.Move(ApplyKnock(Vector3.zero));
                 return;
             }
 
-            _ncc.Move(ApplyKnock(to.normalized));
+            // 走太久還沒到（被牆擋住、路徑一直算不出來）就換個目標 ——
+            // 不要貼著牆磨到天荒地老。只在狀態權威上跑，普通欄位就夠了
+            if (Runner.IsForward && Runner.SimulationTime > _wanderDeadline)
+            {
+                EnterPause();
+                _ncc.Move(ApplyKnock(Vector3.zero));
+                return;
+            }
+
+            // 有路徑就沿路徑走（繞過建築）。**算不出來就退回原本的直線** ——
+            // 規格明講不要讓 NPC 整個停住（之前寫成「算不出來就停下」，羊就一直不動）
+            if (Runner.IsForward) _path.Recalculate(transform.position, TargetPoint, Runner.SimulationTime);
+
+            var dir = _path.HasPath ? _path.Steer(transform.position, GameTuning.NpcArriveThreshold) : Vector3.zero;
+            if (dir == Vector3.zero) dir = Map.NavUtil.SlideAlongWalls(transform.position, to);   // 直線備援也不頂牆
+
+            // 卡住偵測：一直想走、2 秒內卻幾乎沒移動（卡在建築角、被別的羊擋住）就換目標
+            if (IsStuck())
+            {
+                EnterPause();
+                _ncc.Move(ApplyKnock(Vector3.zero));
+                return;
+            }
+
+            _ncc.Move(ApplyKnock(dir));
+        }
+
+        // ---------------- 地圖 B：NavMesh ----------------
+
+        /// <summary>
+        /// 路徑是「怎麼走過去」的過程，不是狀態 —— 普通欄位，不加 [Networked]。
+        /// 位置本來就由 NetworkCharacterController 同步給大家。
+        /// </summary>
+        private readonly NavPathFollower _path = new();
+        private bool _needsRelocate;
+        private float _wanderDeadline = float.PositiveInfinity;
+
+        // 卡住偵測（只在狀態權威上跑，普通欄位）
+        private Vector3 _stuckAnchor;
+        private float _stuckSince = -1f;
+
+        /// <summary>
+        /// 一直想走、但 2 秒內離上一次的位置不到 0.3 公尺 —— 卡住了。
+        /// 呼叫端換目標。只在 forward tick 判斷。
+        /// </summary>
+        private bool IsStuck()
+        {
+            if (!Runner.IsForward) return false;
+            float now = Runner.SimulationTime;
+            var moved = transform.position - _stuckAnchor; moved.y = 0f;
+
+            if (_stuckSince < 0f || moved.sqrMagnitude > 0.09f)
+            {
+                _stuckAnchor = transform.position;
+                _stuckSince = now;
+                return false;
+            }
+            if (now - _stuckSince < 2f) return false;
+
+            _stuckSince = -1f;
+            return true;
+        }
+
+        /// <summary>
+        /// 落到城市裡一個隨機的合法點，家點跟著搬過去。
+        /// **一定走 NCC.Teleport**：NCC 會快取自己的位置，直接改 transform 它看不見 ——
+        /// 跟當初 client 端抖動是同一個成因。沒有城市（Stall_Test）就維持原位。
+        /// </summary>
+        private void RelocateToCity()
+        {
+            var map = FindAnyObjectByType<Map.RandomMapBuilder>();
+            if (map == null || !Map.NavUtil.HasNavMesh) return;
+            // 落在道路上：道路彼此連通，之後閒晃才算得出路徑（建築間的小空隙跟街道不通）
+            if (!map.TryGetRoadPoint(Random.Range, out var p)) return;
+
+            _ncc.Teleport(p + Vector3.up * 0.1f);
+            Configure((DyeColorType)ColorRaw, p);
+            _path.Clear();
         }
 
         private void TickPause()
@@ -205,7 +293,8 @@ namespace AlpacasOnFire.Npc
             if (fromHome.magnitude > GameTuning.NpcWanderRadius)
                 dir = Vector3.Slerp(dir, -fromHome.normalized, 0.6f);
 
-            _ncc.Move(ApplyKnock(dir.normalized));
+            // 逃跑維持「背對玩家直線跑」，只是撞到牆會順著牆滑開，不會頂著牆跑完整段逃跑時間
+            _ncc.Move(ApplyKnock(Map.NavUtil.SlideAlongWalls(transform.position, dir)));
         }
 
         // ---------------- 狀態切換 ----------------
@@ -216,8 +305,27 @@ namespace AlpacasOnFire.Npc
 
             // Random 只在狀態權威上跑，結果透過 [Networked] TargetPoint 同步出去，
             // 所以重模擬不會產生不同的目標點
-            var offset = Random.insideUnitCircle * GameTuning.NpcWanderRadius;
-            TargetPoint = HomePoint + new Vector3(offset.x, 0f, offset.y);
+            // 有城市就挑閒晃範圍內**一格道路**當目標：道路彼此連通，路徑一定算得出來。
+            // 沒有城市（Stall_Test）或附近沒有道路，才用原本的隨機點。
+            var map = Map.NavUtil.HasNavMesh ? FindAnyObjectByType<Map.RandomMapBuilder>() : null;
+            if (map != null && map.TryGetRoadPoint(Random.Range, out var road, HomePoint, GameTuning.NpcWanderRadius))
+            {
+                TargetPoint = road;
+            }
+            else
+            {
+                var offset = Random.insideUnitCircle * GameTuning.NpcWanderRadius;
+                var wish = HomePoint + new Vector3(offset.x, 0f, offset.y);
+                TargetPoint = Map.NavUtil.SnapToNavMesh(wish, 4f, out var p) ? p : wish;
+            }
+
+            _path.Clear();
+            _stuckSince = -1f;
+
+            // 走路的時間上限：直線距離 ÷ 速度 × 3，至少 8 秒（繞路會比直線遠）
+            var dist = TargetPoint - transform.position; dist.y = 0f;
+            _wanderDeadline = Runner.SimulationTime
+                            + Mathf.Max(8f, dist.magnitude / Mathf.Max(0.1f, GameTuning.NpcWanderSpeed) * 3f);
         }
 
         private void EnterPause()

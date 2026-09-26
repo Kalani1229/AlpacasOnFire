@@ -64,10 +64,20 @@ namespace AlpacasOnFire.Npc
 
         // ---------------- 徵召 / 離開 ----------------
 
-        /// <summary>由 CustomerQueue 呼叫。只在 StateAuthority。</summary>
-        public void Recruit(GarmentSpec wanted, int price, Vector3 queueSpot, Vector3 exitPoint)
+        /// <summary>
+        /// 由 CustomerQueue 呼叫。只在 StateAuthority。
+        ///
+        /// **回傳 false = 這位走不到攤位，不要徵召他。** 城市裡被建築圍死的羊，
+        /// 直線走過去只會卡在牆邊耗完耐心、然後扣玩家的錢。算不出路徑就放棄，
+        /// CustomerQueue 會換一隻。沒有 NavMesh 的場景（Stall_Test）一律成功，維持原本的直線。
+        /// </summary>
+        public bool Recruit(GarmentSpec wanted, int price, Vector3 queueSpot, Vector3 exitPoint)
         {
-            if (!HasStateAuthority) return;
+            if (!HasStateAuthority) return false;
+
+            if (Map.NavUtil.HasNavMesh
+                && !_path.Recalculate(transform.position, queueSpot, Runner.SimulationTime, force: true))
+                return false;
 
             Active = true;
             Wanted = wanted;
@@ -80,6 +90,7 @@ namespace AlpacasOnFire.Npc
             PatienceTimer = TickTimer.CreateFromSeconds(Runner, PatienceDuration);
 
             if (_npc != null) _npc.IsCustomer = true;
+            return true;
         }
 
         /// <summary>成交或放棄之後轉身走人。只在 StateAuthority。</summary>
@@ -89,6 +100,7 @@ namespace AlpacasOnFire.Npc
 
             PhaseRaw = (int)Phase.Leaving;
             PatienceTimer = default;
+            _path.Clear();   // 離開的路徑在 TickLeaving 第一個 forward tick 重算
 
             if (!served)
             {
@@ -149,11 +161,26 @@ namespace AlpacasOnFire.Npc
             if (to.magnitude <= GameTuning.NpcArriveThreshold)
             {
                 PhaseRaw = (int)Phase.Waiting;
+                _path.Clear();
                 _ncc.Move(Vector3.zero);
                 return;
             }
-            _ncc.Move(to.normalized);
+            _ncc.Move(SteerTo(QueueSpot, to));
         }
+
+        /// <summary>
+        /// 沿著街道走向目標。路徑只在 forward tick 重算（每 0.5 秒、或目標變了）；
+        /// 算不出來或沒有 NavMesh 就退回原本的直線，不要讓顧客整個停住。
+        /// </summary>
+        private Vector3 SteerTo(Vector3 target, Vector3 straight)
+        {
+            if (Runner.IsForward) _path.Recalculate(transform.position, target, Runner.SimulationTime);
+            var dir = _path.HasPath ? _path.Steer(transform.position, GameTuning.NpcArriveThreshold) : Vector3.zero;
+            return dir != Vector3.zero ? dir : Map.NavUtil.SlideAlongWalls(transform.position, straight);
+        }
+
+        /// <summary>路徑是過程不是狀態：普通欄位，不加 [Networked]。</summary>
+        private readonly NavPathFollower _path = new();
 
         private void TickWaiting()
         {
@@ -170,10 +197,11 @@ namespace AlpacasOnFire.Npc
 
             if (to.magnitude <= 1.5f)
             {
+                _path.Clear();
                 Release();
                 return;
             }
-            _ncc.Move(to.normalized);
+            _ncc.Move(SteerTo(ExitPoint, to));
         }
 
         // ---------------- 表現 ----------------

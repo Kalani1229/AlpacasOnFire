@@ -70,6 +70,9 @@ namespace AlpacasOnFire.Npc
 
             if (!SpawnTimer.ExpiredOrNotRunning(Runner)) return;
 
+            // 徵召會算 NavMesh 路徑 —— 只在 forward tick 做，重模擬期間重算既浪費又可能發散
+            if (!Runner.IsForward) return;
+
             TrySpawnCustomer();
             SpawnTimer = TickTimer.CreateFromSeconds(Runner, GameTuning.CustomerIntervalSeconds);
         }
@@ -129,22 +132,31 @@ namespace AlpacasOnFire.Npc
 
             if (!TryBuildRequest(out var spec, out int price)) return;
 
-            var npc = FindIdleNpc();
-            if (npc == null) return;   // 場上沒有閒著的羊，這一輪先跳過
-
-            var customer = CustomerOf(npc);
-            if (customer == null)
-            {
-                Debug.LogError("[v6] WoolNpc prefab 上沒有 Customer 元件，顧客系統無法運作。" +
-                               "請重跑「羊駝很忙 / 1. 建置佔位資產」。");
-                return;
-            }
-
             var spot = QueueSpotFor(counter, ActiveCount());
-            var exit = npc.HomePoint;
 
-            customer.Recruit(spec, price, spot, exit);
+            // 被建築圍死、走不到攤位的羊不要徵召（Recruit 會回 false）——
+            // 不然他會卡在牆邊耗完耐心，然後扣玩家的錢。換一隻試，最多試幾次。
+            _tried.Clear();
+            for (int attempt = 0; attempt < MaxRecruitAttempts; attempt++)
+            {
+                var npc = FindIdleNpc(_tried);
+                if (npc == null) return;   // 場上沒有閒著的羊，這一輪先跳過
+                _tried.Add(npc);
+
+                var customer = CustomerOf(npc);
+                if (customer == null)
+                {
+                    Debug.LogError("[v6] WoolNpc prefab 上沒有 Customer 元件，顧客系統無法運作。" +
+                                   "請重跑「羊駝很忙 / 1. 建置佔位資產」。");
+                    return;
+                }
+
+                if (customer.Recruit(spec, price, spot, npc.HomePoint)) return;
+            }
         }
+
+        private const int MaxRecruitAttempts = 4;
+        private readonly HashSet<WoolNpc> _tried = new();
 
         private DeliveryCounter FindCounter()
         {
@@ -169,7 +181,7 @@ namespace AlpacasOnFire.Npc
         }
 
         /// <summary>找一隻現在沒在當顧客的羊。</summary>
-        private WoolNpc FindIdleNpc()
+        private WoolNpc FindIdleNpc(HashSet<WoolNpc> exclude)
         {
             WoolNpc best = null;
             int seen = 0;
@@ -179,6 +191,7 @@ namespace AlpacasOnFire.Npc
                 var npc = WoolNpc.All[i];
                 if (npc == null || npc.Object == null || !npc.Object.IsValid) continue;
                 if (npc.IsCustomer) continue;
+                if (exclude != null && exclude.Contains(npc)) continue;   // 這一輪已經試過、走不到的
 
                 // 蓄水池抽樣：不用先建清單就能均勻隨機挑一隻
                 seen++;

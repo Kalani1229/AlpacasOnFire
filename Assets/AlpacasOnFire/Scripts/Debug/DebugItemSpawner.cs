@@ -115,6 +115,48 @@ namespace AlpacasOnFire.DebugTools
                 if (!kb[binding.Key].wasPressedThisFrame) continue;
                 Spawn(binding);
             }
+
+            if (kb.bKey.wasPressedThisFrame) TeleportToBeast();
+        }
+
+        /// <summary>
+        /// B：瞬移到大動物旁邊。城市是程序生成的，大動物可能在幾百公尺外，測試逃跑很麻煩。
+        ///
+        /// 落點在牠 13 公尺外、面向牠 —— 剛好在「盯人範圍」（BeastStareRadius 12）外面，
+        /// 一到就能看到牠吃草，往前走一步牠才會停下來盯你、再靠近才逃。
+        /// 直接瞬移到牠身邊的話，一落地牠就已經在逃了，什麼都看不到。
+        /// </summary>
+        private static void TeleportToBeast()
+        {
+            var player = PlayerController.Local;
+            if (player == null || player.Object == null) { Debug.LogWarning("[Debug] 還沒有本機玩家。"); return; }
+            if (!player.HasStateAuthority)
+            {
+                Debug.LogWarning("[Debug] 瞬移只在 GameMode.Single 或主機端有效。");
+                return;
+            }
+
+            Npc.WildBeast beast = null;
+            foreach (var b in Npc.WildBeast.All)
+                if (b != null && b.Object != null && b.Object.IsValid) { beast = b; break; }
+            if (beast == null) { Debug.LogWarning("[Debug] 場上沒有大動物。"); return; }
+
+            // 從玩家目前的方向往大動物看過去，停在牠 13 公尺外；落不到地面就繞一圈找
+            float distance = GameTuning.BeastStareRadius + 1f;
+            var from = player.transform.position - beast.transform.position; from.y = 0f;
+            if (from.sqrMagnitude < 0.01f) from = Vector3.back;
+            from.Normalize();
+
+            Vector3 target = beast.transform.position + from * distance;
+            for (int i = 0; i < 12; i++)
+            {
+                var dir = Quaternion.Euler(0f, i * 30f, 0f) * from;
+                var wish = beast.transform.position + dir * distance;
+                if (Map.NavUtil.SnapToNavMesh(wish, 3f, out var p)) { target = p; break; }
+            }
+
+            player.RequestTeleport(target + Vector3.up * 0.2f);
+            Debug.Log($"[Debug] 瞬移到大動物旁邊（距離約 {distance:0} 公尺，剛好在牠的盯人範圍外）。");
         }
 
         private static void Spawn(Binding binding)
@@ -275,8 +317,9 @@ namespace AlpacasOnFire.DebugTools
 
                 text += $"[{binding.KeyLabel}] {label}　";
             }
+            text += "[B] 瞬移到大動物旁邊　";
 
-            GUI.Label(new Rect(12f, Screen.height - 26f, 700f, 20f), text, style);
+            GUI.Label(new Rect(12f, Screen.height - 26f, 900f, 20f), text, style);
         }
     }
 }

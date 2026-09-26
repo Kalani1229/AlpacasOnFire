@@ -239,7 +239,7 @@ namespace AlpacasOnFire.Stall
             if (_pendingSuitcaseSpawn)
             {
                 _pendingSuitcaseSpawn = false;
-                SpawnSuitcase(_suitcaseSpawnPosition);
+                SpawnSuitcase(ResolveSuitcaseSpawn());
             }
 
             EnsureBell();
@@ -258,6 +258,20 @@ namespace AlpacasOnFire.Stall
         }
 
         // ---------------- 手提箱 ----------------
+
+        /// <summary>
+        /// 手提箱的出生點。有程序生成的城市時放在第一個廣場（玩家也出生在那裡），
+        /// 往廣場中心旁邊挪一點，不要跟玩家疊在一起；沒有城市（Stall_Test）就用場景設定的座標。
+        /// </summary>
+        private Vector3 ResolveSuitcaseSpawn()
+        {
+            var map = FindAnyObjectByType<Map.RandomMapBuilder>();
+            if (map == null || map.PlazaCenters.Count == 0) return _suitcaseSpawnPosition;
+
+            var wish = map.PlazaCenters[0] + Vector3.forward * 4f;
+            if (!Map.NavUtil.SnapToNavMesh(wish, 3f, out var p)) p = map.PlazaCenters[0];
+            return p + Vector3.up * 0.4f;
+        }
 
         public SuitcaseItem SpawnSuitcase(Vector3 position)
         {

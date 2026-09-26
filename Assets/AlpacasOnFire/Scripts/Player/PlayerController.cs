@@ -174,8 +174,30 @@ namespace AlpacasOnFire.Player
 
         // ---------------- 模擬 ----------------
 
+        /// <summary>
+        /// 要求在下一個網路 tick 瞬移到某處（除錯鍵用）。只在狀態權威上有效。
+        ///
+        /// 不在呼叫當下直接 Teleport：除錯鍵是在 Update() 裡觸發的，那時候不在網路 tick 內。
+        /// 排到 FixedUpdateNetwork 再用 NCC.Teleport，跟掉出世界的保險同一套做法。
+        /// 普通欄位、不加 [Networked] —— 瞬移之後位置本來就由 NCC 同步出去。
+        /// </summary>
+        public void RequestTeleport(Vector3 position)
+        {
+            if (!HasStateAuthority) return;
+            _pendingTeleport = position;
+        }
+
+        private Vector3? _pendingTeleport;
+
         public override void FixedUpdateNetwork()
         {
+            if (_pendingTeleport.HasValue && HasStateAuthority && Runner.IsForward)
+            {
+                _ncc?.Teleport(_pendingTeleport.Value);
+                if (_ncc != null) _ncc.Velocity = Vector3.zero;
+                _pendingTeleport = null;
+            }
+
             if (GetInput(out NetInput input))
             {
                 Yaw = input.Yaw;

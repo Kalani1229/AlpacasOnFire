@@ -128,6 +128,8 @@ namespace AlpacasOnFire.Map
             RoadType[,] roadTypes = ClassifyRoads(expanded, random, mazeWidth, mazeHeight, spacing, width, height);
             bool[,] roads = ToRoadMask(roadTypes, width, height);
             _roadTypes = roadTypes;   // IsInsideBlock 要知道哪些格子是支道
+            _plazaCenters.Clear();
+            StoreArterialCenters(roadTypes, width, height);
 
             // 街區與廣場要在鋪地面之前算出來 —— 廣場的地面跟一般地面不同。
             // （FindBlocks 不用亂數，所以提前呼叫不會改變亂數序列；
@@ -148,11 +150,23 @@ namespace AlpacasOnFire.Map
                 Debug.LogWarning("RandomMapBuilder found no enclosed blocks. Increase map size or cycle chance.", this);
 
             LogSummary(roadTypes, width, height);
+
+            // ---- 地圖 B：NavMesh 一定是最後一步 ----
+            // 之後加進來的東西（路障、死路…）只要生在 Generated Map 底下，就會自動被烤進去。
+            _mapBounds = new Bounds(transform.position,
+                                    new Vector3(width * tileSize, 0f, height * tileSize));
+            EnsureCollidersOnGenerated();
+            BuildNavMesh();
+            _generatedThisSession = Application.isPlaying;
         }
 
         [ContextMenu("Clear Generated Map")]
         public void ClearGeneratedMap()
         {
+            // NavMesh 是直接加進 NavMesh 系統的，不跟著物件一起刪 —— 要自己拿掉
+            RemoveNavMesh();
+            _generatedThisSession = false;
+
             // 除了記住的那一份，也把底下所有叫 "Generated Map" 的都清掉 ——
             // 萬一有一份沒被記住（Undo、生成到一半出錯），它會變成孤兒，按 Clear 永遠清不到。
             for (int i = transform.childCount - 1; i >= 0; i--)
@@ -175,12 +189,15 @@ namespace AlpacasOnFire.Map
 
         private void Start()
         {
-            if (Application.isPlaying && generateOnStart) GenerateMap();
+            // GameLauncher 會在啟動 Runner 之前先呼叫 EnsureGenerated()。
+            // 這裡保留給沒有 GameLauncher 的場景；兩邊誰先跑都沒關係，第二個會跳過。
+            if (Application.isPlaying && generateOnStart) EnsureGenerated();
         }
 
         private void OnDestroy()
         {
             if (!Application.isPlaying) ClearGeneratedMap();
+            else RemoveNavMesh();   // 換場景時把這張地圖的 NavMesh 一起拿掉
         }
 
         // private functions ---
@@ -725,7 +742,17 @@ namespace AlpacasOnFire.Map
 
         private void DestroyGenerated(GameObject instance)
         {
-            if (Application.isPlaying) Destroy(instance);
+            if (Application.isPlaying)
+            {
+                // **Play 中的 Destroy 要等到這一幀結束才真的生效。**
+                // 擺建築時每棟最多試 20 次位置，放不下的都在這裡被刪 —— 可是 NavMesh
+                // 在同一幀就烤了，那兩萬多個「準備刪掉」的建築還在，全被當成障礙物烤進去，
+                // 把路面蓋光（道路抽樣 0/20、障礙 20548 個就是這個）。
+                // 先關掉、移出地圖，後面的步驟就看不到它了。
+                instance.SetActive(false);
+                instance.transform.SetParent(null, false);
+                Destroy(instance);
+            }
             else DestroyImmediate(instance);
         }
 
@@ -818,6 +845,7 @@ namespace AlpacasOnFire.Map
             foreach (var c in chosen)
             {
                 var rect = c.rect;
+                _plazaCenters.Add(c.center);   // 地圖 B：給出生點、手提箱、之後的顧客系統查
                 c.block.RemoveWhere(cell => rect.Contains(cell));
                 for (int y = rect.yMin; y < rect.yMax; y++)
                     for (int x = rect.xMin; x < rect.xMax; x++)
@@ -1198,6 +1226,296 @@ namespace AlpacasOnFire.Map
                       $"路面：幹道組 {Set(arterialPrefabs)}、支道組 {Set(alleyPrefabs)}、" +
                       $"幹道穿過支道 {(arterialCrossAlleyPrefab != null ? arterialCrossAlleyPrefab.name : "未指定")}。", this);
         }
+
+        // ================================================================ 地圖 B：生成時機、查詢、NavMesh
+
+        /// <summary>
+        /// 這一局還沒生成過就生成，生成過就跳過。
+        ///
+        /// **GameLauncher 在啟動 Runner 之前呼叫這一支。** 場景裡的 NPC 是 Fusion 的場景物件，
+        /// Runner 一啟動就會 Spawned()；城市如果比牠們晚生成，牠們會在空中或建築裡開始走動。
+        /// 先生成、先烤好 NavMesh，Runner 啟動時世界已經就緒，後面的落位就單純了。
+        ///
+        /// Start() 也會呼叫它（給沒有 GameLauncher 的場景），誰先跑都一樣，第二個會跳過。
+        /// </summary>
+        public void EnsureGenerated()
+        {
+            if (_generatedThisSession) return;
+            GenerateMap();
+        }
+
+        /// <summary>這一局的廣場中心（世界座標）。生成之後才有值。</summary>
+        public IReadOnlyList<Vector3> PlazaCenters => _plazaCenters;
+
+        /// <summary>地圖的水平範圍（世界座標，y 高度為 0）。生成之後才有值。</summary>
+        public Bounds MapBounds => _mapBounds;
+
+        /// <summary>
+        /// 地面的實際高度 = 這個物件的 y + groundY（跟 GridToWorld 一致）。
+        /// 場景上 RandomMapBuilder 掛在 Tile 上，Tile 的 y 是 -0.1，不是 0。
+        /// 取樣點要用這個高度，「落點不能比想去的點高太多」的判斷才準。
+        /// </summary>
+        public float FloorY => transform.position.y + groundY;
+
+        /// <summary>某個世界座標離最近幹道多遠（公尺）。沒有幹道回 +∞。之後顧客系統會用。</summary>
+        public float DistanceToNearestArterial(Vector3 worldPosition)
+        {
+            float best = float.PositiveInfinity;
+            foreach (var p in _arterialCenters)
+            {
+                float dx = p.x - worldPosition.x, dz = p.z - worldPosition.z;
+                float d = dx * dx + dz * dz;
+                if (d < best) best = d;
+            }
+            return float.IsPositiveInfinity(best) ? best : Mathf.Sqrt(best);
+        }
+
+        private void StoreArterialCenters(RoadType[,] types, int width, int height)
+        {
+            _arterialCenters.Clear();
+            _roadCenters.Clear();
+            for (int y = 0; y < height; y++)
+                for (int x = 0; x < width; x++)
+                {
+                    if (types[x, y] == RoadType.None) continue;
+                    var c = GridToWorld(x, y, width, height);
+                    _roadCenters.Add(c);
+                    if (types[x, y] == RoadType.Arterial) _arterialCenters.Add(c);
+                }
+        }
+
+        /// <summary>
+        /// 隨機一格道路上的點（落在 NavMesh 上）。
+        ///
+        /// **挑道路而不是隨便一個走得到的點**：道路保證彼此連通（迷宮本身就是連通的），
+        /// 從路上出發、走到路上，路徑一定算得出來。隨便挑的話很容易挑到兩棟建築之間
+        /// 的小空隙 —— 那塊跟街道不連通，從那裡出發到哪裡都走不到，NPC 就一直算不出路。
+        ///
+        /// maxDistance > 0 時只挑離 center 這麼近的道路（閒晃範圍）。
+        /// </summary>
+        public bool TryGetRoadPoint(Func<float, float, float> range, out Vector3 point,
+                                    Vector3 center = default, float maxDistance = 0f, int attempts = 30)
+        {
+            point = default;
+            if (_roadCenters.Count == 0) return false;
+
+            float maxSqr = maxDistance * maxDistance;
+            for (int i = 0; i < attempts; i++)
+            {
+                int idx = Mathf.Min(_roadCenters.Count - 1, Mathf.FloorToInt(range(0f, _roadCenters.Count)));
+                var c = _roadCenters[idx];
+                if (maxDistance > 0f)
+                {
+                    var d = c - center; d.y = 0f;
+                    if (d.sqrMagnitude > maxSqr) continue;
+                }
+                if (NavUtil.SnapToNavMesh(c, tileSize * 0.5f, out point)) return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// center 附近（距離 minDistance～maxDistance）一格道路上、而且周圍夠開闊的點。
+        /// 大動物放在玩家出生點附近用。
+        /// </summary>
+        public bool TryGetOpenRoadPointNear(Vector3 center, float minDistance, float maxDistance,
+                                            Func<float, float, float> range, out Vector3 point, int attempts = 60)
+        {
+            point = default;
+            if (_roadCenters.Count == 0) return false;
+
+            for (int i = 0; i < attempts; i++)
+            {
+                int idx = Mathf.Min(_roadCenters.Count - 1, Mathf.FloorToInt(range(0f, _roadCenters.Count)));
+                var c = _roadCenters[idx];
+                var d = c - center; d.y = 0f;
+                float dist = d.magnitude;
+                if (dist < minDistance || dist > maxDistance) continue;
+                if (!NavUtil.SnapToNavMesh(c, tileSize * 0.5f, out var p)) continue;
+                if (!NavUtil.IsOpenAround(p)) continue;
+                point = p;
+                return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// 幫沒有碰撞體的生成物補一個跟外觀一樣大的 BoxCollider。
+        ///
+        /// **Building Prefabs 裡有 9 種機庫完全沒有碰撞體**（Hangar_v2_1～7、outbuilding1、3）。
+        /// 不補的話，玩家走得穿這些建築；而 NavMesh 不管從畫面網格還是碰撞體烤，
+        /// 都會跟另一邊不一致 —— NPC 繞開、玩家穿過，或反過來顧客直接穿牆。
+        /// 補上之後「看得到牆的地方就走不過去」對玩家與 NPC 都成立。
+        ///
+        /// 只處理根物件底下的**直接子物件**（每一棟建築、每一個小物件、每一片外牆），
+        /// 地面、路面不動：地面本來就有碰撞體，路面刻意沒有（見 RoadPlaceholderBuilder）。
+        /// </summary>
+        private void EnsureCollidersOnGenerated()
+        {
+            if (generatedRoot == null) return;
+
+            for (int i = 0; i < generatedRoot.childCount; i++)
+            {
+                var child = generatedRoot.GetChild(i).gameObject;
+                if (child.activeSelf && IsObstacle(child.name)) EnsureSolid(child);
+            }
+        }
+
+        private static bool IsObstacle(string name)
+            => name.StartsWith("Building") || name.StartsWith("Small Object") || name.StartsWith("Border");
+
+        /// <summary>
+        /// 同步烤 NavMesh。**材料自己交給 NavMeshBuilder，不從場景物件收集。**
+        ///
+        /// 第一版用 NavMeshSurface 從 Generated Map 底下收集碰撞體來烤，結果地面幾乎沒有
+        /// NavMesh（231 個三角形、道路抽樣 0/20）。地圖掛在一個被縮放成 (60, 0.2, 60) 的
+        /// Tile 底下、又混著美術網格的碰撞體，收進去的東西與 agent type 對不對都很難驗證。
+        ///
+        /// 改成直接給兩種材料，結果只取決於「地圖多大、建築在哪」：
+        ///   ・地面：整張地圖大小的一塊平面，頂面剛好在地面高度（可以走）
+        ///   ・障礙：每棟建築、每個小物件、每段外牆，各一個跟外觀一樣大的方塊（Not Walkable）
+        /// 障礙方塊壓在地面上，底下那塊地面就被挖掉，四周再依 agent 半徑往內縮。
+        /// 屋頂不會有 NavMesh（Not Walkable 的頂面不算地面），不會再有浮在半空的小島。
+        ///
+        /// 烤跟查詢用同一個 agent 設定物件（NavUtil.Settings），不會對不上。
+        /// </summary>
+        private void BuildNavMesh()
+        {
+            if (generatedRoot == null) return;
+
+            // 編輯模式按 Generate Map 只是看地圖長相，不烤（烤要建立執行期的 agent type）
+            if (!Application.isPlaying) return;
+
+            RemoveNavMesh();
+
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            var settings = NavUtil.Settings;
+
+            int notWalkable = UnityEngine.AI.NavMesh.GetAreaFromName("Not Walkable");
+            if (notWalkable < 0) notWalkable = 1;   // Unity 內建：0 Walkable、1 Not Walkable、2 Jump
+
+            float floor = FloorY;
+            var center = new Vector3(_mapBounds.center.x, floor, _mapBounds.center.z);
+            var sources = new List<UnityEngine.AI.NavMeshBuildSource>();
+
+            // 地面：頂面剛好在 floor
+            sources.Add(new UnityEngine.AI.NavMeshBuildSource
+            {
+                shape = UnityEngine.AI.NavMeshBuildSourceShape.Box,
+                size = new Vector3(_mapBounds.size.x, 0.2f, _mapBounds.size.z),
+                transform = Matrix4x4.TRS(center + Vector3.down * 0.1f, Quaternion.identity, Vector3.one),
+                area = 0,
+            });
+
+            // 障礙：用外觀的包圍盒（建築只轉 90° 的倍數，包圍盒就是它的佔地）
+            int obstacles = 0;
+            for (int i = 0; i < generatedRoot.childCount; i++)
+            {
+                var child = generatedRoot.GetChild(i).gameObject;
+                if (!child.activeSelf || !IsObstacle(child.name)) continue;   // 已經被刪、還沒消失的不算
+
+                var b = CalculateWorldBounds(child);
+                if (b.size.x < 0.05f || b.size.z < 0.05f) continue;
+
+                // 底部至少壓到地面以下一點，確保把底下的地面整塊蓋掉
+                float bottom = Mathf.Min(b.min.y, floor - 0.2f);
+                float top = Mathf.Max(b.max.y, floor + 0.5f);
+                var size = new Vector3(b.size.x, top - bottom, b.size.z);
+                var mid = new Vector3(b.center.x, (top + bottom) * 0.5f, b.center.z);
+
+                sources.Add(new UnityEngine.AI.NavMeshBuildSource
+                {
+                    shape = UnityEngine.AI.NavMeshBuildSourceShape.Box,
+                    size = size,
+                    transform = Matrix4x4.TRS(mid, Quaternion.identity, Vector3.one),
+                    area = notWalkable,
+                });
+                obstacles++;
+            }
+
+            var bakeBounds = new Bounds(center, new Vector3(_mapBounds.size.x + 10f, 80f, _mapBounds.size.z + 10f));
+            var data = UnityEngine.AI.NavMeshBuilder.BuildNavMeshData(settings, sources, bakeBounds,
+                                                                     Vector3.zero, Quaternion.identity);
+            if (data != null) _navInstance = UnityEngine.AI.NavMesh.AddNavMeshData(data);
+            sw.Stop();
+
+            NavUtil.HasNavMesh = _navInstance.valid;
+
+            // 診斷：抽 20 格道路看有幾格在 NavMesh 上。NPC 不動的時候先看這一行。
+            var tri = UnityEngine.AI.NavMesh.CalculateTriangulation();
+            int samples = Mathf.Min(20, _roadCenters.Count), hits = 0;
+            for (int i = 0; i < samples; i++)
+            {
+                var c = _roadCenters[i * _roadCenters.Count / Mathf.Max(1, samples)];
+                if (NavUtil.IsOnNavMesh(c, 1.5f)) hits++;
+            }
+            Debug.Log($"[地圖] NavMesh 烤好了（{sw.ElapsedMilliseconds} 毫秒，agent 半徑 {NavUtil.AgentRadius}，" +
+                      $"障礙 {obstacles} 個）：{tri.indices.Length / 3} 個三角形，道路抽樣 {hits}/{samples} 格在 NavMesh 上。", this);
+            if (samples > 0 && hits == 0)
+                Debug.LogError("[地圖] 道路上完全沒有 NavMesh —— NPC 會找不到路。請把這一行貼給我。", this);
+        }
+
+        /// <summary>拿掉這張地圖的 NavMesh（重新生成、清除、物件被刪除時）。</summary>
+        private void RemoveNavMesh()
+        {
+            if (_navInstance.valid) _navInstance.Remove();
+            _navInstance = default;
+            NavUtil.HasNavMesh = false;
+        }
+
+        private UnityEngine.AI.NavMeshDataInstance _navInstance;
+
+        /// <summary>
+        /// 地圖上隨機一個走得到的點（落在 NavMesh 上）。WoolNpc 散佈用。
+        /// random 由呼叫端提供（狀態權威上跑，結果透過 Teleport / [Networked] 同步出去）。
+        /// </summary>
+        public bool TryGetRandomWalkablePoint(Func<float, float, float> range, out Vector3 point, int attempts = 40)
+        {
+            point = default;
+            if (!NavUtil.HasNavMesh) return false;
+
+            var b = _mapBounds;
+            for (int i = 0; i < attempts; i++)
+            {
+                var wish = new Vector3(range(b.min.x, b.max.x), FloorY, range(b.min.z, b.max.z));
+                if (NavUtil.SnapToNavMesh(wish, tileSize * 0.5f, out point)) return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// 離 from 最遠、而且周圍夠開闊的走得到的點。大動物落位用。
+        ///
+        /// 「開闊」= 以 5 公尺為間距往 8 個方向取樣，至少 5 個方向在 NavMesh 上。
+        /// 只挑最遠的話很容易挑到死巷底，大動物的方向取樣會全部被淘汰、原地不動。
+        /// </summary>
+        public bool TryGetFarOpenPoint(Vector3 from, Func<float, float, float> range, out Vector3 point, int samples = 150)
+        {
+            point = default;
+            if (!NavUtil.HasNavMesh) return false;
+
+            var b = _mapBounds;
+            float bestDist = -1f;
+            for (int i = 0; i < samples; i++)
+            {
+                var wish = new Vector3(range(b.min.x, b.max.x), FloorY, range(b.min.z, b.max.z));
+                if (!NavUtil.SnapToNavMesh(wish, tileSize * 0.5f, out var p)) continue;
+                if (!NavUtil.IsOpenAround(p)) continue;
+
+                var d = p - from; d.y = 0f;
+                float dist = d.sqrMagnitude;
+                if (dist <= bestDist) continue;
+                bestDist = dist;
+                point = p;
+            }
+            return bestDist >= 0f;
+        }
+
+        private bool _generatedThisSession;
+        private Bounds _mapBounds;
+        private readonly List<Vector3> _plazaCenters = new();
+        private readonly List<Vector3> _arterialCenters = new();
+        private readonly List<Vector3> _roadCenters = new();
 
         // private variables ---
 

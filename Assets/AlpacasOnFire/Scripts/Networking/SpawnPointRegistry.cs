@@ -21,9 +21,29 @@ namespace AlpacasOnFire.Networking
             Points.Remove(this);
         }
 
+        private static List<Vector3> _override;
+        private static int _overrideCursor;
+
+        /// <summary>
+        /// 用程式指定的出生點取代場景裡的 PlayerSpawn 標記（地圖 B：程序生成的城市，
+        /// 場景裡寫死的座標可能在建築裡）。傳 null 取消覆寫。
+        /// </summary>
+        public static void SetOverride(List<Vector3> points)
+        {
+            _override = points != null && points.Count > 0 ? new List<Vector3>(points) : null;
+            _overrideCursor = 0;
+        }
+
         /// <summary>輪流取用出生點；沒有任何出生點時回傳原點附近的預設位置。</summary>
         public static (Vector3 pos, Quaternion rot) Next()
         {
+            if (_override != null)
+            {
+                var spot = _override[_overrideCursor % _override.Count];
+                _overrideCursor++;
+                return (spot + Vector3.up * 0.2f, Quaternion.identity);
+            }
+
             if (Points.Count == 0)
                 return (new Vector3(0f, 1f, 0f), Quaternion.identity);
 

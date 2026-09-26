@@ -66,6 +66,19 @@ namespace AlpacasOnFire.Networking
         {
             if (IsRunning) return;
 
+            // ---- 地圖 B：先有世界，再啟動 Runner ----
+            //
+            // 場景裡的 NPC、大動物是 Fusion 的場景物件，Runner 一啟動就會 Spawned()。
+            // 城市是執行期生成的；如果牠們先活起來、城市後生成，牠們會在空中或建築裡開始走動。
+            // 所以在這裡同步生成城市、烤好 NavMesh，然後才 StartGame。
+            //
+            // 不會被 Runner 啟動時的載入場景洗掉：NetworkSceneManagerDefault 預設
+            // IsSceneTakeOverEnabled = true，已經載入的場景會被直接接手、不重新載入。
+            //
+            // 放在 StartGame 而不是 Start()：從標題畫面進來、自動開場、之後從選單呼叫，
+            // 三條路都會經過這裡。沒有 RandomMapBuilder 的場景（Stall_Test）什麼都不做。
+            PrepareWorld();
+
             _runner.ProvideInput = true;
             if (_runner.GetComponent<NetworkSceneManagerDefault>() == null)
                 _runner.gameObject.AddComponent<NetworkSceneManagerDefault>();
@@ -88,6 +101,41 @@ namespace AlpacasOnFire.Networking
                 Debug.LogError($"[GameLauncher] 啟動失敗: {result.ShutdownReason}");
             else
                 Debug.Log($"[GameLauncher] 已啟動，模式 = {mode}");
+        }
+
+        /// <summary>
+        /// 生成城市、烤 NavMesh，然後把玩家出生點搬到第一個廣場。
+        ///
+        /// 出生點用覆寫的方式給 SpawnPointRegistry，玩家生出來就在廣場上，
+        /// 不需要事後 Teleport。NPC 與大動物的落位在牠們自己的 Spawned() 裡做
+        /// （那時候牠們才有 NetworkCharacterController 可以 Teleport）。
+        /// </summary>
+        private static void PrepareWorld()
+        {
+            // 覆寫是靜態的，先清掉 —— 不然從羊駝村回到 Stall_Test 會沿用上一張地圖的廣場
+            SpawnPointRegistry.SetOverride(null);
+
+            var map = FindAnyObjectByType<Map.RandomMapBuilder>();
+            if (map == null) return;
+
+            map.EnsureGenerated();
+
+            if (map.PlazaCenters.Count == 0)
+            {
+                Debug.LogWarning("[GameLauncher] 地圖沒有任何廣場，玩家出生點維持場景原本的位置。");
+                return;
+            }
+
+            // 四個玩家在廣場中心附近散開一點，不要疊在一起
+            var center = map.PlazaCenters[0];
+            var points = new List<Vector3>();
+            for (int i = 0; i < 4; i++)
+            {
+                var wish = center + Quaternion.Euler(0f, 45f + i * 90f, 0f) * Vector3.forward * 2.5f;
+                if (!Map.NavUtil.SnapToNavMesh(wish, 3f, out var p)) p = wish;
+                points.Add(p);
+            }
+            SpawnPointRegistry.SetOverride(points);
         }
 
         public async void Shutdown()

@@ -82,6 +82,7 @@ namespace AlpacasOnFire.Npc
                 HomePoint = transform.position;
                 Fleece = GameTuning.BeastFleece;
                 EnterGraze();
+                _needsRelocate = true;   // 第一個 tick 搬到離出生廣場最遠、夠開闊的地方
             }
 
             ApplyVisual(true);
@@ -114,6 +115,12 @@ namespace AlpacasOnFire.Npc
         public override void FixedUpdateNetwork()
         {
             if (!HasStateAuthority) return;
+
+            if (_needsRelocate && Runner.IsForward)
+            {
+                _needsRelocate = false;
+                RelocateToCity();
+            }
 
             switch (State)
             {
@@ -148,8 +155,58 @@ namespace AlpacasOnFire.Npc
                 return;
             }
 
-            _ncc.Move(to.normalized);
+            // 走太久還沒到、或 2 秒內幾乎沒動（卡在建築角）就換個目標，不要貼牆磨
+            if (Runner.IsForward && (Runner.SimulationTime > _grazeDeadline || IsStuck()))
+            {
+                EnterGraze();
+                _ncc.Move(Vector3.zero);
+                return;
+            }
+
+            // 地圖 B：吃草沿路徑走（城市裡建築有碰撞體，直線走會卡牆）。
+            // 算不出路就退回原本的直線 —— 規格明講不要讓 NPC 整個停住。
+            _ncc.Move(FollowPath(TargetPoint, to));
         }
+
+        /// <summary>
+        /// 沿 NavMesh 路徑走向 target 的方向；算不出路或沒有 NavMesh 就是原本的直線。
+        /// 路徑只在 forward tick 重算；路徑是過程不是狀態，存在普通欄位。
+        /// **只用在吃草與回家** —— 逃跑維持方向取樣，那是這隻動物的靈魂。
+        /// </summary>
+        private Vector3 FollowPath(Vector3 target, Vector3 straight)
+        {
+            if (Map.NavUtil.HasNavMesh && Runner.IsForward)
+                _path.Recalculate(transform.position, target, Runner.SimulationTime);
+
+            var steer = _path.HasPath ? _path.Steer(transform.position, GameTuning.BeastArriveThreshold) : Vector3.zero;
+            return steer != Vector3.zero ? steer : Map.NavUtil.SlideAlongWalls(transform.position, straight);
+        }
+
+        // 卡住偵測（只在狀態權威上跑，普通欄位）
+        private Vector3 _stuckAnchor;
+        private float _stuckSince = -1f;
+
+        /// <summary>一直想走、但 2 秒內離上一次的位置不到 0.3 公尺 —— 卡住了。只在 forward tick 判斷。</summary>
+        private bool IsStuck()
+        {
+            if (!Runner.IsForward) return false;
+            float now = Runner.SimulationTime;
+            var moved = transform.position - _stuckAnchor; moved.y = 0f;
+
+            if (_stuckSince < 0f || moved.sqrMagnitude > 0.09f)
+            {
+                _stuckAnchor = transform.position;
+                _stuckSince = now;
+                return false;
+            }
+            if (now - _stuckSince < 2f) return false;
+
+            _stuckSince = -1f;
+            return true;
+        }
+
+        private readonly Npc.NavPathFollower _path = new();
+        private float _grazeDeadline = float.PositiveInfinity;
 
         /// <summary>
         /// 盯著。**這一段是整批最重要的表現** —— 玩家看不到 10 公尺的圈，
@@ -200,7 +257,9 @@ namespace AlpacasOnFire.Npc
                 RethinkTimer = TickTimer.CreateFromSeconds(Runner, GameTuning.BeastRethinkSeconds);
             }
 
-            _ncc.Move(MoveDirection);
+            // 方向怎麼選不變（方向取樣）；只是撞到牆會順著牆滑開，不會頂著建築角卡住。
+            // 被逼到角落（兩面都是牆）時滑也滑不出去，還是會在角落打轉 —— 那是刻意保留的
+            _ncc.Move(Map.NavUtil.SlideAlongWalls(transform.position, MoveDirection));
         }
 
         /// <summary>走回家，路上不理會玩家 —— 不然牠會在領域邊界來回彈。</summary>
@@ -218,7 +277,8 @@ namespace AlpacasOnFire.Npc
                 return;
             }
 
-            _ncc.Move(to.normalized);
+            // 回家也沿路徑走；算不出路就直線
+            _ncc.Move(FollowPath(HomePoint, to));
         }
 
         // ---------------- 逃跑方向 ----------------
@@ -255,6 +315,10 @@ namespace AlpacasOnFire.Npc
                 if (OutsideTerritory(predicted)) continue;
                 if (BlockedAhead(origin, dir)) continue;
                 if (!HasGroundAt(predicted)) continue;
+                // 地圖 B：預測點要在 NavMesh 上（容差 1 公尺）—— 不往建築裡鑽。
+                // 只加這一條，方向取樣本身不變：被逼到角落原地打轉的那個瞬間完全保留。
+                // 沒有 NavMesh 的場景 IsOnNavMesh 一律回 true，等於沒加。
+                if (!Map.NavUtil.IsOnNavMesh(predicted, 1f)) continue;
 
                 float score = ScoreAgainstPlayers(predicted);
                 if (score <= bestScore) continue;
@@ -298,6 +362,36 @@ namespace AlpacasOnFire.Npc
             return nearest + GameTuning.BeastSecondPlayerWeight * second;
         }
 
+        private bool _needsRelocate;
+
+        [Tooltip("勾起來：大動物生在玩家出生廣場附近（測試方便，14～30 公尺，在警戒範圍外）。\n" +
+                 "取消：照規格生在離出生廣場最遠、周圍夠開闊的地方。")]
+        [SerializeField] private bool _spawnNearPlayers = true;
+
+        /// <summary>
+        /// 搬到離玩家出生廣場最遠、而且周圍夠開闊的合法點，家點跟著搬。
+        /// 開闊 = 以 5 公尺間距往 8 個方向取樣，至少 5 個在 NavMesh 上；
+        /// 不然領域太窄，方向取樣會一直全部淘汰，牠會原地不動。
+        /// **一定走 NCC.Teleport**。沒有城市（Stall_Test）就維持原位。
+        /// </summary>
+        private void RelocateToCity()
+        {
+            var map = FindAnyObjectByType<Map.RandomMapBuilder>();
+            if (map == null || !Map.NavUtil.HasNavMesh || map.PlazaCenters.Count == 0) return;
+
+            var spawn = map.PlazaCenters[0];
+            bool found = _spawnNearPlayers
+                // 測試用：放在出生廣場附近，但在警戒範圍（BeastStareRadius）外面，
+                // 不然一出生就看到玩家、直接進入盯人／逃跑
+                ? map.TryGetOpenRoadPointNear(spawn, GameTuning.BeastStareRadius + 2f, 30f, Random.Range, out var p)
+                : map.TryGetFarOpenPoint(spawn, Random.Range, out p);
+            if (!found) return;
+
+            _ncc.Teleport(p + Vector3.up * 0.1f);
+            HomePoint = p;
+            EnterGraze();
+        }
+
         private bool OutsideTerritory(Vector3 point)
         {
             var to = point - HomePoint;
@@ -334,8 +428,31 @@ namespace AlpacasOnFire.Npc
 
             // Random 只在狀態權威上跑，結果透過 [Networked] TargetPoint 同步出去，
             // 所以重模擬不會產生不同的目標點
-            var offset = Random.insideUnitCircle * (GameTuning.BeastTerritoryRadius * 0.5f);
-            TargetPoint = HomePoint + new Vector3(offset.x, 0f, offset.y);
+            // 地圖 B：目標點先落到 NavMesh 上，多試幾次（城市建築密，隨機點常常在建築裡）。
+            // 沒有 NavMesh 的場景 SnapToNavMesh 原樣回傳，行為跟原本一樣。
+            // 有城市就挑領域內一格道路（道路彼此連通，路徑算得出來）；否則用原本的隨機點
+            float grazeRadius = GameTuning.BeastTerritoryRadius * 0.5f;
+            var map = Map.NavUtil.HasNavMesh ? FindAnyObjectByType<Map.RandomMapBuilder>() : null;
+            if (map != null && map.TryGetRoadPoint(Random.Range, out var road, HomePoint, grazeRadius))
+            {
+                TargetPoint = road;
+            }
+            else
+            {
+                var offset = Random.insideUnitCircle * grazeRadius;
+                var wish = HomePoint + new Vector3(offset.x, 0f, offset.y);
+                TargetPoint = Map.NavUtil.SnapToNavMesh(wish, 4f, out var p) ? p : wish;
+            }
+            _path.Clear();
+            _stuckSince = -1f;
+
+            // 走路的時間上限：直線距離 ÷ 速度 × 3，至少 10 秒
+            if (Runner != null)
+            {
+                var d = TargetPoint - transform.position; d.y = 0f;
+                _grazeDeadline = Runner.SimulationTime
+                               + Mathf.Max(10f, d.magnitude / Mathf.Max(0.1f, GameTuning.BeastGrazeSpeed) * 3f);
+            }
         }
 
         private void EnterAlert() => StateRaw = (int)BeastState.Alert;
