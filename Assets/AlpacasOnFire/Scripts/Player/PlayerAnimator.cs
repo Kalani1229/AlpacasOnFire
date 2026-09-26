@@ -36,6 +36,7 @@ namespace AlpacasOnFire.Player
 
         private static readonly int IsWalkingHash = Animator.StringToHash("isWalking");
         private static readonly int SpitHash      = Animator.StringToHash(StateSpit);
+        private static readonly int WorkHash      = Animator.StringToHash(StateWork);
 
         private const float CrossFadeSeconds = 0.15f;
 
@@ -108,7 +109,11 @@ namespace AlpacasOnFire.Player
             SendWalking(walking);
 
             var want = Evaluate(walking);
-            if (want == _current) return;
+            if (want == _current)
+            {
+                if (want == Pose.Work) LoopWorkWhileHeld();
+                return;
+            }
 
             var from = _current;
             _current = want;
@@ -198,6 +203,20 @@ namespace AlpacasOnFire.Player
                 }
             }
             return true;
+        }
+
+        /// <summary>
+        /// 按住機台（紡線機）時，HoldTick 每個 tick 都會重新點 WorkTimer，所以 Work 會一直持續。
+        /// 但 A_Alpaca_Work 沒有勾 Loop（按一下的短動作只要播一次），
+        /// 按超過片段長度就會停在最後一格 —— 這裡在播完時從頭再播，看起來就是一直在做事。
+        /// 按一下的動作只有 0.45 秒，比片段短，永遠碰不到這裡。
+        /// </summary>
+        private void LoopWorkWhileHeld()
+        {
+            if (_animator.IsInTransition(0)) return;
+            var info = _animator.GetCurrentAnimatorStateInfo(0);
+            if (info.shortNameHash == WorkHash && info.normalizedTime >= 1f)
+                _animator.Play(WorkHash, 0, 0f);
         }
 
         private static bool IsLocomotion(Pose p) => p == Pose.Idle || p == Pose.Run;
