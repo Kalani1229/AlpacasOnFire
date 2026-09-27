@@ -79,6 +79,12 @@ namespace AlpacasOnFire.Machines
         [Networked] public int QueuedColorRaw { get; set; }
 
         /// <summary>
+        /// 待料槽那份毛**自己帶來的**進度（秒）。一般的毛是 0；
+        /// 從別台換出來、紡到一半的毛放進待料槽時要記住它，遞補上去才不會歸零。
+        /// </summary>
+        [Networked] public float QueuedProgress { get; set; }
+
+        /// <summary>
         /// 最後一次被「按住」推進的 tick。用它在所有端推導「現在有人正在紡」。
         ///
         /// 不用一個 NetworkBool 是因為沒有人會來關掉它 —— 玩家走開、轉頭、
@@ -157,7 +163,11 @@ namespace AlpacasOnFire.Machines
                 string colour = PlaceholderPalette.DyeName(ctx.Held.Spec.Color);
                 if (!HasInput)  return $"[左鍵] 放入{colour}毛";
                 if (!HasQueued) return $"[左鍵] 把{colour}毛放進待料槽";
-                return "裝滿了 —— 等這一份紡完";
+
+                // 兩格都滿：放不進去 -> 跟正在紡的那一份交換，進度跟著毛走
+                return Progress > 0f
+                    ? $"[左鍵] 換出紡了 {Progress01 * 100f:F0}% 的{PlaceholderPalette.DyeName(InputColor)}毛"
+                    : $"[左鍵] 換出還沒紡的{PlaceholderPalette.DyeName(InputColor)}毛";
             }
 
             if (HasOutput)
@@ -177,11 +187,19 @@ namespace AlpacasOnFire.Machines
 
             if (ctx.HeldKind == ItemKind.Wool)
             {
-                if (!CanAcceptWool) return;
-                var colour = ctx.Held.Spec.Color;
+                var held = ctx.Held;
+                var colour = held.Spec.Color;
+                float carried = held.HasWork ? held.WorkSeconds : 0f;
+
+                if (!CanAcceptWool)
+                {
+                    SwapInputWith(in ctx, colour, carried);
+                    return;
+                }
+
                 ctx.Player.Carry.ConsumeHeld();
                 ctx.Player.TriggerWork();
-                InsertWool(colour);
+                InsertWool(colour, carried);
                 return;
             }
 
@@ -240,12 +258,16 @@ namespace AlpacasOnFire.Machines
         /// 放一份毛進去。手放的與丟進來的走同一段。
         /// 原料槽空就進原料槽，否則進待料槽，兩個都滿就拒絕。
         /// </summary>
-        private bool InsertWool(DyeColorType colour)
+        private bool InsertWool(DyeColorType colour, float carriedProgress = 0f)
         {
+            // 帶進度的毛：夾在「還沒紡完」的範圍內（理論上不會超過，保險）
+            carriedProgress = Mathf.Clamp(carriedProgress, 0f, GameTuning.SpinSeconds * 0.99f);
+
             if (!HasInput)
             {
                 InputColorRaw = (int)colour;
                 HasInput = true;
+                Progress = carriedProgress;
                 GameAudio.PlayAt(SfxId.Pickup, transform.position);
                 return true;
             }
@@ -254,6 +276,7 @@ namespace AlpacasOnFire.Machines
             {
                 QueuedColorRaw = (int)colour;
                 HasQueued = true;
+                QueuedProgress = carriedProgress;
                 GameAudio.PlayAt(SfxId.Pickup, transform.position);
                 return true;
             }
@@ -271,8 +294,10 @@ namespace AlpacasOnFire.Machines
 
             InputColorRaw = QueuedColorRaw;
             HasInput = true;
+            Progress = QueuedProgress;   // 遞補上來的毛如果本來就紡到一半，從那裡接著紡
             HasQueued = false;
             QueuedColorRaw = 0;
+            QueuedProgress = 0f;
             GameAudio.PlayAt(SfxId.MachineStart, transform.position);
         }
 
@@ -302,6 +327,47 @@ namespace AlpacasOnFire.Machines
             ctx.Player.TriggerWork();
         }
 
+        // ---------------- 放不進去：交換 ----------------
+
+        /// <summary>
+        /// 兩格都滿的時候把手上的毛放進來，**把正在紡的那一份換到手上**。
+        ///
+        /// 換出來的毛帶著目前的 Progress（存在 CarriableItem.WorkSeconds），
+        /// 之後放進任何一台紡線機都從那裡繼續；手上那份毛帶著它自己的進度接手原料槽。
+        /// 待料槽跟成品槽都不動 —— 換的只有「正在紡的那一份」。
+        ///
+        /// 只有手放會換；丟進來的毛沒有手可以接，照舊被拒絕。
+        /// </summary>
+        private void SwapInputWith(in InteractionContext ctx, DyeColorType incoming, float incomingProgress)
+        {
+            if (!HasStateAuthority || !HasInput) return;
+
+            var outColour = InputColor;
+            float outProgress = Progress;
+
+            // 先把手騰空，SpawnIntoHands 才放得進去
+            ctx.Player.Carry.ConsumeHeld();
+            var spec = GarmentSpec.Create(PatternType.None, outColour);
+            var item = ItemFactory.SpawnIntoHands(Runner, ItemKind.Wool, spec, ctx.Player,
+                                                  outProgress, outProgress > 0f ? GameTuning.SpinSeconds : 0f);
+            if (item == null)
+            {
+                // 生不出來（多半是 catalog 少了羊毛）：至少不要讓手上那份毛消失
+                Debug.LogError("[紡線機] 交換失敗：生不出換出來的羊毛。手上那份毛放回腳邊，機台不變。");
+                ItemFactory.Spawn(Runner, ItemKind.Wool, GarmentSpec.Create(PatternType.None, incoming),
+                                  ctx.Player.HandAnchor.position, default,
+                                  incomingProgress, incomingProgress > 0f ? GameTuning.SpinSeconds : 0f);
+                return;
+            }
+
+            InputColorRaw = (int)incoming;
+            Progress = Mathf.Clamp(incomingProgress, 0f, GameTuning.SpinSeconds * 0.99f);
+            LastSpinTick = 0;   // 換料那一刻不算「有人在紡」
+
+            GameAudio.PlayAt(SfxId.Pickup, transform.position);
+            ctx.Player.TriggerWork();
+        }
+
         // ---------------- 被丟進來的羊毛 ----------------
 
         public bool CanAcceptThrown(CarriableItem item)
@@ -314,7 +380,7 @@ namespace AlpacasOnFire.Machines
         public bool AcceptThrown(CarriableItem item)
         {
             if (!HasStateAuthority || !CanAcceptThrown(item)) return false;
-            return InsertWool(item.Spec.Color);
+            return InsertWool(item.Spec.Color, item.HasWork ? item.WorkSeconds : 0f);
         }
 
         // ---------------- 外觀 ----------------

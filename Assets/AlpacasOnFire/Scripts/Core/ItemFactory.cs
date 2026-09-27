@@ -7,8 +7,11 @@ namespace AlpacasOnFire.Core
     /// <summary>生成可攜帶物件的統一入口。只在 StateAuthority 呼叫。</summary>
     public static class ItemFactory
     {
+        /// <param name="workSeconds">做到一半的進度（秒），見 CarriableItem.WorkSeconds。一般物品不用給。</param>
+        /// <param name="workTotal">那份進度的終點（秒）。</param>
         public static CarriableItem Spawn(NetworkRunner runner, ItemKind kind, GarmentSpec spec,
-                                          Vector3 position, Quaternion rotation = default)
+                                          Vector3 position, Quaternion rotation = default,
+                                          float workSeconds = 0f, float workTotal = 0f)
         {
             if (runner == null) return null;
             var prefab = GameCatalog.Instance != null ? GameCatalog.Instance.GetItem(kind) : null;
@@ -19,7 +22,10 @@ namespace AlpacasOnFire.Core
             var obj = runner.Spawn(prefab, position, rotation, null, (r, o) =>
             {
                 var item = o.GetComponent<CarriableItem>();
-                if (item != null) item.Spec = spec;
+                if (item == null) return;
+                item.Spec = spec;
+                item.WorkSeconds = workSeconds;
+                item.WorkTotal = workTotal;
             });
             return obj != null ? obj.GetComponent<CarriableItem>() : null;
         }
@@ -40,7 +46,8 @@ namespace AlpacasOnFire.Core
         /// 再把 HeldId 指過去，兩邊一次寫好，就完全繞開那個空窗期。
         /// </summary>
         public static CarriableItem SpawnIntoHands(NetworkRunner runner, ItemKind kind, GarmentSpec spec,
-                                                   Player.PlayerController player)
+                                                   Player.PlayerController player,
+                                                   float workSeconds = 0f, float workTotal = 0f)
         {
             if (runner == null || player == null || player.Object == null) return null;
             if (player.Carry == null || player.Carry.HasItem) return null;
@@ -55,6 +62,8 @@ namespace AlpacasOnFire.Core
                 var carriable = o.GetComponent<CarriableItem>();
                 if (carriable == null) return;
                 carriable.Spec = spec;
+                carriable.WorkSeconds = workSeconds;
+                carriable.WorkTotal = workTotal;
                 carriable.HolderId = holderId;   // 物品 -> 玩家，在這裡就綁好
             });
 

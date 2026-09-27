@@ -26,6 +26,12 @@ namespace AlpacasOnFire.Core
         // ---- 生產鏈（紡線機）----
         // 生產鏈從兩段變三段：素材箱 -> 紡線機 -> 織布機 -> 交貨窗口。
         Thread = 14,       // 絲線：紡線機的產出，織布機唯一的原料
+
+        // ---- 機台換出 ----
+        // 織布機織到一半被換出來的東西。帶著版型、主色／點綴色與已織秒數，
+        // 放回同版型的織布機會從原進度繼續。**不是 Garment**：交貨窗口、箱子、飾品
+        // 全都只認 Garment / GarmentItem，半成品不會被當成成品賣掉。
+        UnfinishedGarment = 15,
     }
 
     public enum PatternType : byte

@@ -101,33 +101,64 @@ namespace AlpacasOnFire.Machines
         }
 
         // ---------------- 互動 ----------------
+        //
+        // 放不進去的時候**直接交換**：把機台裡的東西換到手上，手上的放進去。
+        //   手上絲線 + 成品待取        -> 拿走成品，絲線放進去開始織
+        //   手上絲線 + 兩份線已經在織  -> 換出「半成品」（帶著已織秒數），絲線放進去重新開始
+        //   手上半成品 + 機台有任何東西 -> 換出那個東西，半成品放進去從原進度繼續
+        //   手上半成品 + 機台是空的     -> 直接放進去從原進度繼續
+        // 還放得下的時候（第二份線）照舊加點綴色，不會觸發交換。
+
+        private bool IsEmptyMachine => !Processing && !HasOutput && WoolCount == 0;
+
+        private bool Fits(CarriableItem unfinished)
+            => unfinished != null && unfinished.Spec.Pattern == _outputPattern;
 
         public override bool CanInteract(in InteractionContext ctx)
         {
-            // 成品沒拿走之前，Space 一律解讀成取貨
-            if (HasOutput) return ctx.IsEmptyHanded;
+            // 半成品一律讓它進得來：版型不對也要能顯示「這台織不了」
+            if (ctx.HeldKind == ItemKind.UnfinishedGarment) return true;
+
+            // 成品待取：空手取貨，或拿著絲線交換
+            if (HasOutput) return ctx.IsEmptyHanded || ctx.HeldKind == ItemKind.Thread;
 
             // 拿著生羊毛時要讓它進得來，不然 FindTarget 濾掉之後
             // 「織布機只吃絲線」那句提示根本顯示不出來，玩家只看到機台沒反應。
             // Interact() 會擋掉，所以按下去仍然什麼都不會發生。
             if (ctx.HeldKind == ItemKind.Wool) return true;
 
-            // 空手沒有別的意思 —— 沒有開始鈕
-            if (ctx.HeldKind != ItemKind.Thread) return false;
-            return CanAcceptWool;
+            // 空手沒有別的意思 —— 沒有開始鈕。
+            // 拿著絲線：放得下就放，放不下（兩份都在織）就交換
+            return ctx.HeldKind == ItemKind.Thread;
         }
 
         public override string GetPrompt(in InteractionContext ctx)
         {
+            if (ctx.HeldKind == ItemKind.UnfinishedGarment)
+            {
+                if (!Fits(ctx.Held))
+                    return $"這台只織{PlaceholderPalette.PatternName(_outputPattern)}";
+                if (IsEmptyMachine)
+                    return $"[Space] 放回半成品，從 {ctx.Held.Work01 * 100f:F0}% 繼續織";
+                return HasOutput
+                    ? $"[Space] 換出 {DescribeOutput()}，放回半成品"
+                    : $"[Space] 換出織了 {Progress01 * 100f:F0}% 的半成品，放回手上的半成品";
+            }
+
             if (HasOutput)
+            {
+                if (ctx.HeldKind == ItemKind.Thread)
+                    return $"[Space] 換出 {DescribeOutput()}，放入{PlaceholderPalette.DyeName(ctx.Held.Spec.Color)}線開始織";
                 return ctx.IsEmptyHanded
                     ? $"[Space] 取出 {DescribeOutput()}"
                     : "先空出雙手才能取出成品";
+            }
 
             if (ctx.HeldKind == ItemKind.Thread)
             {
                 if (WoolCount >= GameTuning.WeaveMaxWool)
-                    return $"已經放滿 {GameTuning.WeaveMaxWool} 份了";
+                    return $"[Space] 換出織了 {Progress01 * 100f:F0}% 的半成品，" +
+                           $"放入{PlaceholderPalette.DyeName(ctx.Held.Spec.Color)}線重新開始";
 
                 if (!Processing)
                     return $"[Space] 放入{PlaceholderPalette.DyeName(ctx.Held.Spec.Color)}線開始織（主色）";
@@ -157,19 +188,116 @@ namespace AlpacasOnFire.Machines
         {
             if (!HasStateAuthority) return;
 
-            if (HasOutput)
+            // ---- 手上是半成品 ----
+            if (ctx.HeldKind == ItemKind.UnfinishedGarment)
+            {
+                var held = ctx.Held;
+                if (!Fits(held)) return;
+
+                var spec = held.Spec;
+                float elapsed = held.WorkSeconds;
+                float total = held.WorkTotal;
+
+                ctx.Player.Carry.ConsumeHeld();
+                if (!IsEmptyMachine && !ExtractToHands(ctx.Player))
+                {
+                    // 換不出來：把半成品原樣放回腳邊，機台不動
+                    DropBack(ctx.Player, ItemKind.UnfinishedGarment, spec, elapsed, total);
+                    return;
+                }
+
+                ResumeUnfinished(spec, elapsed, total);
+                ctx.Player.TriggerWork();
+                return;
+            }
+
+            // ---- 空手取成品（原本的行為）----
+            if (HasOutput && ctx.IsEmptyHanded)
             {
                 TryTakeOutput(in ctx);
                 return;
             }
 
             if (ctx.HeldKind != ItemKind.Thread) return;
-            if (!CanAcceptWool) return;
 
             var colour = ctx.Held.Spec.Color;
+
+            // ---- 放得下：照舊 ----
+            if (CanAcceptWool)
+            {
+                ctx.Player.Carry.ConsumeHeld();
+                ctx.Player.TriggerWork();   // 放入絲線算「在工作」
+                InsertWool(colour);
+                return;
+            }
+
+            // ---- 放不下：交換（成品待取，或兩份線已經在織）----
             ctx.Player.Carry.ConsumeHeld();
-            ctx.Player.TriggerWork();   // 放入絲線算「在工作」
+            if (!ExtractToHands(ctx.Player))
+            {
+                DropBack(ctx.Player, ItemKind.Thread, GarmentSpec.Create(PatternType.None, colour), 0f, 0f);
+                return;
+            }
+
+            ctx.Player.TriggerWork();
             InsertWool(colour);
+        }
+
+        /// <summary>
+        /// 把機台裡的東西交到玩家手上（手必須已經騰空）：
+        ///   成品待取 -> 成品衣服
+        ///   織製中   -> 半成品（版型、主色／點綴色、已織秒數、目標長度都帶走），機台清空
+        /// </summary>
+        private bool ExtractToHands(Player.PlayerController player)
+        {
+            if (HasOutput) return GiveOutputToHands(player);
+            if (!Processing) return WoolCount == 0;   // 空的：沒東西要拿，算成功
+
+            var spec = BuildOutputSpec();
+            float elapsed = ElapsedSeconds;
+            float total = ProcessDuration;
+
+            var item = ItemFactory.SpawnIntoHands(Runner, ItemKind.UnfinishedGarment, spec, player,
+                                                  Mathf.Max(0.01f, elapsed), total);
+            if (item == null)
+            {
+                Debug.LogError("[織布機] 生不出半成品 —— GameCatalog 裡沒有 UnfinishedGarment 的 prefab。" +
+                               "請執行選單「羊駝很忙 / 補上半成品衣服 prefab」。");
+                return false;
+            }
+
+            CancelProcess();
+            ClearSlots();
+            GameAudio.PlayAt(SfxId.Pickup, transform.position);
+            return true;
+        }
+
+        /// <summary>半成品放進來，從它自己的進度接著織。版型已經在呼叫端確認過。</summary>
+        private void ResumeUnfinished(GarmentSpec spec, float elapsed, float total)
+        {
+            if (total <= 0f) total = GameTuning.WeaveSingleSeconds;
+
+            MainColorRaw = (int)spec.Color;
+            AccentColorRaw = (int)spec.AccentColor;
+            // 目標長度就是當時放了幾份線的證據（主色、點綴色同色的雙色也分得出來）
+            WoolCount = total >= GameTuning.WeaveDoubleSeconds - 0.01f ? 2 : 1;
+
+            ResumeProcess(total, elapsed);
+        }
+
+        private void ClearSlots()
+        {
+            WoolCount = 0;
+            MainColorRaw = 0;
+            AccentColorRaw = 0;
+        }
+
+        /// <summary>交換失敗時的保險：手上那份東西原樣放回腳邊，不能讓它憑空消失。</summary>
+        private void DropBack(Player.PlayerController player, ItemKind kind, GarmentSpec spec,
+                              float work, float total)
+        {
+            var pos = player.transform.position + player.transform.forward * 0.6f + Vector3.up * 0.4f;
+            ItemFactory.Spawn(Runner, kind, spec, pos, default, work, total);
         }
 
         /// <summary>
@@ -211,9 +339,7 @@ namespace AlpacasOnFire.Machines
 
             if (!HasStateAuthority || !wasProcessing || Processing) return;
 
-            WoolCount = 0;
-            MainColorRaw = 0;
-            AccentColorRaw = 0;
+            ClearSlots();
         }
 
         // ---------------- 被丟進來的絲線 ----------------
@@ -223,11 +349,26 @@ namespace AlpacasOnFire.Machines
         /// 只改織布機，縫紉機與果汁機維持原本的 `!Processing && !HasOutput`。
         /// </summary>
         public bool CanAcceptThrown(CarriableItem item)
-            => item != null && item.Kind == ItemKind.Thread && CanAcceptWool;
+        {
+            if (item == null) return false;
+            if (item.Kind == ItemKind.Thread) return CanAcceptWool;
+
+            // 半成品丟進**空的**同版型織布機就接著織。丟的時候沒有手可以接換出來的東西，
+            // 所以機台有東西就不收（跟絲線丟不進滿的機台是同一個道理）
+            if (item.Kind == ItemKind.UnfinishedGarment) return Fits(item) && IsEmptyMachine;
+            return false;
+        }
 
         public bool AcceptThrown(CarriableItem item)
         {
             if (!HasStateAuthority || !CanAcceptThrown(item)) return false;
+
+            if (item.Kind == ItemKind.UnfinishedGarment)
+            {
+                ResumeUnfinished(item.Spec, item.WorkSeconds, item.WorkTotal);
+                return true;
+            }
+
             InsertWool(item.Spec.Color);
             return true;
         }

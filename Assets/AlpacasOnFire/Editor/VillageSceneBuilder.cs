@@ -120,6 +120,10 @@ namespace AlpacasOnFire.EditorTools
             if (!catalog.items.Any(e => e.kind == ItemKind.Thread && e.prefab != null))
                 missing.Add("絲線 prefab（紡線機紡完會拿不到東西）");
 
+            // 織布機換出來的半成品。少了它的話，織到一半想換料時會換不出來（東西退回腳邊）
+            if (!catalog.items.Any(e => e.kind == ItemKind.UnfinishedGarment && e.prefab != null))
+                missing.Add("半成品衣服 prefab（選單「補上半成品衣服 prefab」）");
+
             if (npc.prefab != null && npc.prefab.GetComponent<Customer>() == null)
                 missing.Add("WoolNpc prefab 沒有 Customer 元件 —— 顧客系統不會運作");
 

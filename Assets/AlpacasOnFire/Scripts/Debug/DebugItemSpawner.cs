@@ -27,8 +27,8 @@ namespace AlpacasOnFire.DebugTools
         /// <summary>畫面左下角要不要顯示按鍵提示。</summary>
         public static bool ShowHint = true;
 
-        /// <summary>生什麼：可攜帶物品、場上的裝備，還是對自己施加一個惡搞效果。</summary>
-        private enum SpawnKind : byte { Item, Device, SelfPrank }
+        /// <summary>生什麼：可攜帶物品、場上的裝備、對自己施加惡搞效果，還是直接加錢。</summary>
+        private enum SpawnKind : byte { Item, Device, SelfPrank, Money }
 
         private readonly struct Binding
         {
@@ -61,6 +61,9 @@ namespace AlpacasOnFire.DebugTools
 
             public static Binding MakeSelfPrank(Key key, string keyLabel, string label)
                 => new(key, keyLabel, label, SpawnKind.SelfPrank, ItemKind.None, default, DyeColorType.White);
+
+            public static Binding MakeMoney(Key key, string keyLabel, string label)
+                => new(key, keyLabel, label, SpawnKind.Money, ItemKind.None, default, DyeColorType.White);
         }
 
         // 要加新的除錯物件，在這裡加一行即可。
@@ -88,6 +91,11 @@ namespace AlpacasOnFire.DebugTools
             // **一個鍵輪流三種**：致盲 -> 擊退 -> 暈倒 -> 再回到致盲。
             // 三個一起上的話畫面會糊成一團，分不出哪個效果長什麼樣。
             Binding.MakeSelfPrank(Key.Digit0, "0", "對自己惡搞"),
+
+            // 加錢：一次加「今天門檻的一半」，所以不管第幾天，按兩下都剛好達標。
+            // 固定金額在指數型的門檻下很快就沒意義了（第 8 天門檻已經 1115），所以跟著門檻走。
+            // 數字鍵 0~9 都被佔滿了，所以用 M（money）。
+            Binding.MakeMoney(Key.M, "M", "加錢"),
         };
 
         /// <summary>0 鍵輪到第幾個效果。</summary>
@@ -177,11 +185,38 @@ namespace AlpacasOnFire.DebugTools
             }
 
             if (binding.Kind == SpawnKind.SelfPrank) { SelfPrank(player); return; }
+            if (binding.Kind == SpawnKind.Money) { AddMoney(); return; }
 
             var point = GroundPointInFrontOf(player);
 
             if (binding.Kind == SpawnKind.Item) SpawnItem(binding, player, point);
             else SpawnDevice(binding, player, point);
+        }
+
+        /// <summary>
+        /// 加錢。加的是 LevelDirector.Money —— 那就是「今天的營收」，
+        /// 也正是門檻比對的那個數字，而 Settle() 會把它累進 Capital。
+        /// 所以按下去 HUD 會立刻跳、達標判定會生效、隔天的資本也對得上。
+        ///
+        /// 金額跟著今天的門檻走而不是固定值：門檻是指數成長的，
+        /// 固定 +500 到中後期就沒有意義了。按兩下剛好達標，測結算與夜晚流程很順手。
+        /// </summary>
+        private static void AddMoney()
+        {
+            var director = Orders.LevelDirector.Instance;
+            if (director == null)
+            {
+                Debug.LogWarning("[Debug] 場上沒有 LevelDirector，加不了錢。");
+                return;
+            }
+
+            var stall = StallManager.Instance;
+            int target = stall != null ? stall.RoundTarget : 0;
+            int amount = target > 0 ? Mathf.Max(1, target / 2) : 500;
+
+            director.AddMoney(amount, "除錯：加錢");
+            Debug.Log($"[Debug] 加了 {amount} 元" +
+                      (target > 0 ? $"（今天門檻 {target}）。" : "（沒有門檻，用固定值）。"));
         }
 
         /// <summary>

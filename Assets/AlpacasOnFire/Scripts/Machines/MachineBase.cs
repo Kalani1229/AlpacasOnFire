@@ -1,6 +1,7 @@
 using AlpacasOnFire.Core;
 using AlpacasOnFire.Interaction;
 using AlpacasOnFire.Items;
+using AlpacasOnFire.Player;
 using AlpacasOnFire.Stall;
 using Fusion;
 using UnityEngine;
@@ -127,6 +128,49 @@ namespace AlpacasOnFire.Machines
 
             ProcessDuration = newTotalSeconds;
             ProcessTimer = TickTimer.CreateFromSeconds(Runner, remaining);
+        }
+
+        /// <summary>
+        /// 中途停掉這一批（東西被換出去了）。只在 StateAuthority 呼叫。
+        /// 不會產出任何東西 —— 呼叫端自己負責把進度帶走。
+        /// </summary>
+        protected void CancelProcess()
+        {
+            if (!HasStateAuthority) return;
+            Processing = false;
+            ProcessTimer = default;
+            ProcessDuration = 0f;
+        }
+
+        /// <summary>
+        /// 從別處帶來的進度接著做：總長 totalSeconds、已經做了 elapsedSeconds。
+        /// 只在 StateAuthority 呼叫。剩餘時間至少一個 tick，不會瞬間完成到看不見。
+        /// </summary>
+        protected void ResumeProcess(float totalSeconds, float elapsedSeconds)
+        {
+            if (!HasStateAuthority) return;
+            float remaining = Mathf.Max(Runner.DeltaTime, totalSeconds - elapsedSeconds);
+            Processing = true;
+            ProcessDuration = totalSeconds;
+            ProcessTimer = TickTimer.CreateFromSeconds(Runner, remaining);
+            GameAudio.PlayAt(SfxId.MachineStart, transform.position);
+        }
+
+        /// <summary>
+        /// 把做好的成品交到玩家手上，**不要求空手** —— 呼叫端要先把手騰空（交換用）。
+        /// 只在 StateAuthority 呼叫。
+        /// </summary>
+        protected bool GiveOutputToHands(PlayerController player)
+        {
+            if (!HasStateAuthority || !HasOutput || player == null) return false;
+
+            var item = ItemFactory.SpawnIntoHands(Runner, OutputItemKind, OutputSpec, player);
+            if (item == null) return false;
+
+            HasOutput = false;
+            OutputSpec = default;
+            GameAudio.PlayAt(SfxId.Pickup, transform.position);
+            return true;
         }
 
         /// <summary>

@@ -599,6 +599,68 @@ namespace AlpacasOnFire.EditorTools
                 // 只有線身會被染色，擋片維持木色（不然整顆變成一坨純色，又跟羊毛難分了）
                 return (typeof(CarriableItem), new Renderer[] { spool.GetComponent<Renderer>() });
             }));
+
+            AddItem(outItems, failures, "Item_UnfinishedGarment",
+                    () => BuildUnfinishedGarment(layer));
+        }
+
+        /// <summary>
+        /// 半成品衣服：織布機織到一半被換出來的東西。
+        ///
+        /// 外型是**只織了一半的布**：跟成衣同寬，但只有下半截，上緣留一排稀疏的線頭 ——
+        /// 一眼看得出「還沒好」，不會被當成成品拿去交貨（交貨窗口本來也不收它）。
+        /// 元件是一般的 CarriableItem，**不是 GarmentItem**，所以箱子、飾品、交貨窗口全都不認它。
+        /// </summary>
+        private static GameCatalog.ItemEntry BuildUnfinishedGarment(int layer)
+        {
+            return Item(ItemKind.UnfinishedGarment, "Item_UnfinishedGarment", layer, root =>
+            {
+                var mat = Mat("M_UnfinishedGarment", PlaceholderPalette.Wool);
+                var size = GameTuning.GarmentItemSize;
+                var half = new Vector3(size.x, size.y * 0.5f, size.z);
+                var cloth = Prim(PrimitiveType.Cube, "HalfCloth", root.transform,
+                                 new Vector3(0f, -size.y * 0.25f, 0f), half, mat);
+
+                // 上緣的線頭：幾根細條，沒有碰撞體
+                var warp = Mat("M_UnfinishedWarp", new Color(0.9f, 0.88f, 0.82f));
+                for (int i = 0; i < 5; i++)
+                {
+                    float x = Mathf.Lerp(-size.x * 0.4f, size.x * 0.4f, i / 4f);
+                    Prim(PrimitiveType.Cube, $"Warp{i}", root.transform,
+                         new Vector3(x, size.y * 0.12f, 0f), new Vector3(0.025f, size.y * 0.25f, 0.025f),
+                         warp, keepCollider: false);
+                }
+
+                return (typeof(CarriableItem), new Renderer[] { cloth.GetComponent<Renderer>() });
+            });
+        }
+
+        /// <summary>
+        /// 只補半成品衣服的 prefab 與 Catalog 項目，**不重建其他任何資產**。
+        /// 給已經有完整資產、不想整套重建的專案用。
+        /// </summary>
+        [MenuItem("羊駝很忙/補上半成品衣服 prefab（不重建其他資產）", priority = 20)]
+        public static void BuildUnfinishedGarmentOnly()
+        {
+            EnsureFolders();
+            ResetCaches();
+            int layer = EnsureLayer(ItemLayer);
+
+            var entry = BuildUnfinishedGarment(layer);
+            var catalog = LoadOrCreateCatalog();
+
+            var list = new List<GameCatalog.ItemEntry>(catalog.items ?? new GameCatalog.ItemEntry[0]);
+            list.RemoveAll(e => e.kind == ItemKind.UnfinishedGarment);
+            list.Add(entry);
+            catalog.items = list.ToArray();
+            EditorUtility.SetDirty(catalog);
+
+            AssetDatabase.SaveAssets();
+            AssetDatabase.Refresh();
+
+            Debug.Log("[建置] 半成品衣服 prefab 已建立並登錄進 GameCatalog。" +
+                      "如果 Fusion 抱怨找不到 prefab，執行 Tools > Fusion > Rebuild Prefab Table。");
+            Selection.activeObject = catalog;
         }
 
         private static GameCatalog.ItemEntry Item(ItemKind kind, string prefabName, int layer,

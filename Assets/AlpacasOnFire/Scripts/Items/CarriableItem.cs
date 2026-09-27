@@ -31,6 +31,21 @@ namespace AlpacasOnFire.Items
         [Networked] public NetworkId ThrowerId { get; set; }
         [Networked] public GarmentSpec Spec { get; set; }
 
+        /// <summary>
+        /// 從機台換出來的「做到一半」的進度（秒）。0 = 沒有進度（一般的物品）。
+        ///   羊毛：已經紡了幾秒（放回任何一台紡線機都從這裡繼續）
+        ///   半成品衣服：已經織了幾秒
+        /// 物品被丟、被撿、被傳來傳去都跟著走，因為它就存在物品身上。
+        /// </summary>
+        [Networked] public float WorkSeconds { get; set; }
+
+        /// <summary>這份進度的終點（秒）。紡線固定是 SpinSeconds；半成品是當時的目標長度（單色 4 / 雙色 7）。</summary>
+        [Networked] public float WorkTotal { get; set; }
+
+        /// <summary>進度比例 0~1。沒有進度時是 0。</summary>
+        public float Work01 => WorkTotal > 0f ? Mathf.Clamp01(WorkSeconds / WorkTotal) : 0f;
+        public bool HasWork => WorkSeconds > 0f && WorkTotal > 0f;
+
         private Collider[] _colliders;
         private MaterialPropertyBlock _mpb;
         private GarmentSpec _lastRenderedSpec;
@@ -86,6 +101,77 @@ namespace AlpacasOnFire.Items
             UpdateColliders();
         }
 
+        // ---------------- 進度條（做到一半的東西）----------------
+        //
+        // 執行期生出來的兩個小方塊，浮在物品上方、轉向鏡頭。
+        // 不做進 prefab：只有極少數物品會有進度，而且這樣不用重建任何資產。
+
+        private Transform _workBarRoot;
+        private Transform _workBarFill;
+        private readonly BarAnchor _workBar01 = new(BarAnchor.Axis.X);
+
+        private void UpdateWorkBar()
+        {
+            bool show = HasWork;
+            if (!show)
+            {
+                if (_workBarRoot != null && _workBarRoot.gameObject.activeSelf)
+                    _workBarRoot.gameObject.SetActive(false);
+                return;
+            }
+
+            if (_workBarRoot == null) BuildWorkBar();
+            if (_workBarRoot == null) return;
+            if (!_workBarRoot.gameObject.activeSelf) _workBarRoot.gameObject.SetActive(true);
+
+            _workBarRoot.position = VisualRoot.position + Vector3.up * 0.38f;
+            var cam = Camera.main;
+            if (cam != null)
+            {
+                var dir = _workBarRoot.position - cam.transform.position;
+                dir.y = 0f;
+                if (dir.sqrMagnitude > 0.0001f) _workBarRoot.rotation = Quaternion.LookRotation(dir.normalized);
+            }
+            _workBar01.Apply(_workBarFill, Work01);
+        }
+
+        private void BuildWorkBar()
+        {
+            var mat = _tintTargets != null && _tintTargets.Length > 0 && _tintTargets[0] != null
+                ? _tintTargets[0].sharedMaterial
+                : null;
+            if (mat == null) return;
+
+            _workBarRoot = new GameObject("WorkBar").transform;
+            _workBarRoot.SetParent(transform, false);
+
+            MakeBarPiece("Back", new Vector3(0.44f, 0.07f, 0.02f), Vector3.zero,
+                         new Color(0.12f, 0.12f, 0.14f), mat);
+            _workBarFill = MakeBarPiece("Fill", new Vector3(0.4f, 0.045f, 0.03f), new Vector3(0f, 0f, -0.006f),
+                                        new Color(0.98f, 0.8f, 0.2f), mat);
+        }
+
+        private Transform MakeBarPiece(string name, Vector3 size, Vector3 localPos, Color c, Material mat)
+        {
+            var go = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            go.name = name;
+            var col = go.GetComponent<Collider>();
+            if (col != null) Destroy(col);
+            go.layer = gameObject.layer;
+            go.transform.SetParent(_workBarRoot, false);
+            go.transform.localPosition = localPos;
+            go.transform.localScale = size;
+
+            var r = go.GetComponent<Renderer>();
+            r.sharedMaterial = mat;
+            r.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            var mpb = new MaterialPropertyBlock();
+            mpb.SetColor("_BaseColor", c);
+            mpb.SetColor("_Color", c);
+            r.SetPropertyBlock(mpb);
+            return go.transform;
+        }
+
         /// <summary>
         /// 被拿著的時候，各端都直接貼到手上錨點，不等網路位置同步（拿在手上不該有延遲）。
         /// 放在 LateUpdate 而不是 Render，確保一定蓋過 NetworkTransform 的插值結果。
@@ -93,9 +179,14 @@ namespace AlpacasOnFire.Items
         protected virtual void LateUpdate()
         {
             var holder = Holder;
-            if (holder == null) return;
-            transform.position = holder.HandAnchor.position;
-            transform.rotation = holder.HandAnchor.rotation;
+            if (holder != null)
+            {
+                transform.position = holder.HandAnchor.position;
+                transform.rotation = holder.HandAnchor.rotation;
+            }
+
+            // 進度條要在物品貼到手上之後才擺位置，不然會落後一幀
+            if (Object != null && Object.IsValid) UpdateWorkBar();
         }
 
         // ---------------- 持有 / 丟接 ----------------
@@ -292,6 +383,7 @@ namespace AlpacasOnFire.Items
                 ItemKind.DyeCanister   => PlaceholderPalette.Dye(spec.Color),
                 ItemKind.Wool          => PlaceholderPalette.Wool,
                 ItemKind.Thread        => PlaceholderPalette.Dye(spec.Color),
+                ItemKind.UnfinishedGarment => Color.Lerp(PlaceholderPalette.Dye(spec.Color), Color.white, 0.35f),
                 ItemKind.HairTonic     => PlaceholderPalette.HairTonic,
                 ItemKind.Accessory     => PlaceholderPalette.Accessory,
                 ItemKind.Box           => PlaceholderPalette.Box,
@@ -370,13 +462,14 @@ namespace AlpacasOnFire.Items
 
         public virtual string DisplayName => _kind switch
         {
-            ItemKind.Wool        => "羊毛",
+            ItemKind.Wool        => HasWork ? $"羊毛（紡了 {Work01 * 100f:F0}%）" : "羊毛",
             ItemKind.Thread      => PlaceholderPalette.DyeName(Spec.Color) + "絲線",
             ItemKind.DyeMaterial => PlaceholderPalette.DyeName(Spec.Color) + "染料",
             ItemKind.DyeCanister => PlaceholderPalette.DyeName(Spec.Color) + "顏料",
             ItemKind.Accessory   => PlaceholderPalette.AccessoryName(Spec.Accessory),
             ItemKind.HairTonic   => "生髮水",
             ItemKind.Garment     => Spec.Describe(),
+            ItemKind.UnfinishedGarment => $"半成品{Spec.Describe()}（織了 {Work01 * 100f:F0}%）",
             ItemKind.Box         => "箱子",
             ItemKind.Shears      => "剃毛器",
             ItemKind.Spit        => "口水",
