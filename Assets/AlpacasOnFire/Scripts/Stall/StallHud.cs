@@ -1,4 +1,5 @@
 using AlpacasOnFire.Core;
+using AlpacasOnFire.Orders;
 using AlpacasOnFire.Player;
 using AlpacasOnFire.UI;
 using UnityEngine;
@@ -25,6 +26,7 @@ namespace AlpacasOnFire.Stall
         private Image _modeChip;
 
         private Text _openHintLabel;
+        private Text _dayWarnLabel;
 
         private float _noticeTimer;
 
@@ -69,6 +71,12 @@ namespace AlpacasOnFire.Stall
                 new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f),
                 new Vector2(0f, -210f), new Vector2(1100f, 40f));
 
+            // run 模式：天快黑了還沒開張的警告。畫面上方偏中，比一般提示大、會閃
+            _dayWarnLabel = UIFactory.Label("DayNotOpenWarn", transform, "", 34, TextAnchor.MiddleCenter,
+                new Color(1f, 0.3f, 0.25f),
+                new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0.5f, 1f),
+                new Vector2(0f, -120f), new Vector2(900f, 48f));
+
             // 開張條件提示：只是文字，沒有按鈕（游標鎖住，按鈕點不到）
             _openHintLabel = UIFactory.Label("OpenHint", transform, "", 20, TextAnchor.LowerRight,
                 new Color(0.85f, 0.88f, 0.94f),
@@ -112,6 +120,7 @@ namespace AlpacasOnFire.Stall
                 if (_capitalLabel != null) _capitalLabel.text = "";
                 if (_targetLabel != null) _targetLabel.text = "";
                 if (_openHintLabel != null) _openHintLabel.text = "";
+                if (_dayWarnLabel != null) _dayWarnLabel.text = "";
                 return;
             }
 
@@ -131,40 +140,82 @@ namespace AlpacasOnFire.Stall
         }
 
         /// <summary>
-        /// 營業中的目標進度：第幾輪、目標多少、已經賺了多少、還差多少。
+        /// run 模式的一天：第幾天、剩多少時間、目標多少、已經賺了多少、還差多少。
+        ///
+        /// **從早上探索就開始顯示**，不是只有營業中 —— 玩家採集時就要知道今天要賺多少、
+        /// 還剩多少時間，「什麼時候收手去開張」這個決策才做得出來。
         ///
         /// **達標的瞬間變綠並改寫成「已達標！」。** 這個回饋很重要 ——
-        /// 它把後半輪從「還在焦慮」翻成「多賺多賺」，是同一段時間裡兩種完全不同的心情。
+        /// 它把後半天從「還在焦慮」翻成「多賺多賺」，是同一段時間裡兩種完全不同的心情。
         ///
-        /// 只在 run 模式且營業中顯示：Stall_Test 沒有門檻，多一行數字只會干擾。
+        /// 只在 run 模式顯示：Stall_Test 沒有門檻也沒有全天時鐘，多一行數字只會干擾。
+        /// 顯示「第 N 天」；欄位還是叫 CurrentRound（改名牽動太多地方）。
         /// </summary>
         private void UpdateRoundTarget(StallManager stall)
         {
             if (_targetLabel == null) return;
 
-            if (!stall.RunMode || stall.State != StallState.Open || stall.RoundTarget <= 0)
+            bool dayRunning = stall.RunMode && stall.DayActive && stall.RoundTarget > 0
+                              && stall.State != StallState.Settling && stall.State != StallState.RunOver;
+
+            if (!dayRunning)
             {
                 _targetLabel.text = "";
+                if (_dayWarnLabel != null) _dayWarnLabel.text = "";
                 return;
             }
+
+            var director = LevelDirector.Instance;
+            float remain = director != null && director.Running ? director.RemainingSeconds : 0f;
+            int secs = Mathf.CeilToInt(remain);
+            string clock = $"{secs / 60}:{secs % 60:00}";
 
             int earned = stall.CurrentRevenue;
             int target = stall.RoundTarget;
+            string head = $"第 {stall.CurrentRound} 天　剩 {clock}　目標 {target}　已賺 {earned}";
 
             if (earned >= target)
             {
-                _targetLabel.text = $"第 {stall.CurrentRound} 輪　目標 {target}　已賺 {earned}　已達標！";
+                _targetLabel.text = $"{head}　已達標！";
                 _targetLabel.color = new Color(0.45f, 0.95f, 0.5f);
+            }
+            else
+            {
+                _targetLabel.text = $"{head}　還差 {target - earned}";
+
+                // 進度過 75% 轉暖色 —— 快要來不及的時候要看得出來
+                float progress = earned / (float)target;
+                _targetLabel.color = progress >= 0.75f
+                    ? new Color(0.98f, 0.9f, 0.45f)
+                    : new Color(0.95f, 0.85f, 0.55f);
+            }
+
+            UpdateNotOpenWarning(stall, remain);
+        }
+
+        /// <summary>
+        /// 天快黑了還沒開張：紅字閃爍。**這是新玩家最容易犯的錯** ——
+        /// 採集採到忘記時間，時間到才發現一件都沒賣。
+        /// 讀的全是同步狀態（State、LevelDirector 的計時），所以每個 client 都看得到。
+        /// </summary>
+        private void UpdateNotOpenWarning(StallManager stall, float remain)
+        {
+            if (_dayWarnLabel == null) return;
+
+            bool warn = stall.State != StallState.Open && remain < GameTuning.DayNotOpenWarnSeconds;
+            if (!warn)
+            {
+                _dayWarnLabel.text = "";
                 return;
             }
 
-            _targetLabel.text = $"第 {stall.CurrentRound} 輪　目標 {target}　已賺 {earned}　還差 {target - earned}";
+            int secs = Mathf.CeilToInt(remain);
+            _dayWarnLabel.text = $"還沒開張！天黑前 {secs} 秒 —— 快去擺攤敲鈴";
 
-            // 進度過 75% 轉暖色 —— 快要來不及的時候要看得出來
-            float progress = earned / (float)target;
-            _targetLabel.color = progress >= 0.75f
-                ? new Color(0.98f, 0.9f, 0.45f)
-                : new Color(0.95f, 0.85f, 0.55f);
+            // 一秒閃兩次；Time.unscaledTime 讓暫停選單開著時也不會卡在某一個亮度
+            float pulse = 0.5f + 0.5f * Mathf.Sin(Time.unscaledTime * Mathf.PI * 4f);
+            var c = new Color(1f, 0.3f, 0.25f, Mathf.Lerp(0.35f, 1f, pulse));
+            _dayWarnLabel.color = c;
         }
 
         /// <summary>

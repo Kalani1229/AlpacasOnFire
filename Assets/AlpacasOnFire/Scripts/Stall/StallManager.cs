@@ -39,6 +39,11 @@ namespace AlpacasOnFire.Stall
         /// 這時 passed 永遠是 true。
         /// </summary>
         public static event Action<int, int, int, int, int, bool> OnRoundSettled;
+        /// <summary>
+        /// UI 用：這一天結束時有沒有開張過（run 模式）。**一定在 OnRoundSettled 之前發**，
+        /// 結算畫面才能在同一幀決定要不要寫「今天沒有開張」。非 run 模式永遠是 true。
+        /// </summary>
+        public static event Action<bool> OnDayOpenedFlag;
         /// <summary>UI 用：需要對玩家說一句話（放置失敗、開張條件不足……）。</summary>
         public static event Action<string> OnStallNotice;
 
@@ -102,6 +107,16 @@ namespace AlpacasOnFire.Stall
         /// <summary>本輪的營收門檻，開張時寫入。**0 代表沒有門檻**（非 run 模式）。</summary>
         [Networked] public int RoundTarget { get; set; }
 
+        /// <summary>
+        /// run 模式：今天的時鐘已經開始跑（BeginDay 之後、結算之前）。
+        /// 用來判斷「Running 由真變假 = 天黑了」—— 第一天開場的那一個 tick
+        /// Running 還是 false，沒有這個旗標就會一進場就結算。
+        /// </summary>
+        [Networked] public NetworkBool DayActive { get; set; }
+
+        /// <summary>run 模式：今天有沒有開張過。結算畫面要說「今天沒有開張」。</summary>
+        [Networked] public NetworkBool OpenedToday { get; set; }
+
         /// <summary>這一局賣出過最貴的一件衣服，結算畫面要秀。</summary>
         [Networked] public GarmentSpec BestSale { get; set; }
         [Networked] public int BestSalePrice { get; set; }
@@ -109,12 +124,16 @@ namespace AlpacasOnFire.Stall
         /// <summary>這一場有沒有 run 循環（每輪門檻）。給 HUD 判斷要不要顯示目標。</summary>
         public bool RunMode => _runMode;
 
-        /// <summary>營業中的即時營收。營業中讀 LevelDirector，結算後讀定格的 RoundRevenue。</summary>
+        /// <summary>
+        /// 即時營收。營業中讀 LevelDirector，結算後讀定格的 RoundRevenue。
+        /// run 模式下一整天都讀 LevelDirector（時鐘從早上就開始跑，Money 也在那時歸零）。
+        /// </summary>
         public int CurrentRevenue
         {
             get
             {
-                if (State != StallState.Open) return RoundRevenue;
+                bool live = State == StallState.Open || (_runMode && DayActive);
+                if (!live) return RoundRevenue;
                 var director = LevelDirector.Instance;
                 return director != null ? director.Money : 0;
             }
@@ -127,6 +146,7 @@ namespace AlpacasOnFire.Stall
         private StallMatVisual _matVisual;
         private StallState _lastRenderedState = (StallState)255;
         private bool _pendingSuitcaseSpawn;
+        private bool _pendingBeginDay;
 
         private readonly StallSlotRecord[] _layoutBuffer = new StallSlotRecord[StallCatalog.MaxSlots];
 
@@ -176,11 +196,21 @@ namespace AlpacasOnFire.Stall
                 Capital = GameTuning.StallStartingCapital;
                 RoundsCompleted = 0;
 
-                // run 循環：從第 1 輪開始。門檻要等開張才寫（見 OpenForBusiness）。
+                // run 循環：從第 1 天開始。
+                // 非 run 模式：門檻維持 0，計時等開張才開始（見 OpenForBusiness）。
+                // run 模式：門檻與時鐘在 BeginDay() 寫入 —— 見下面 _pendingBeginDay 的說明。
                 CurrentRound = 1;
                 RoundTarget = 0;
                 BestSale = default;
                 BestSalePrice = 0;
+                DayActive = false;
+                OpenedToday = false;
+
+                // 第一天的 BeginDay() **延到第一個 tick**，不在這裡直接呼叫：
+                // LevelDirector 跟這支掛在同一個 NetworkObject 上，Spawned() 的先後不保證。
+                // 如果它比我們晚 Spawned，會把 Running / LevelTimer / Money 重設回「擺攤模式待機」，
+                // 剛開始跑的時鐘就被蓋掉了（而且 LevelDirector.Instance 可能還是 null）。
+                _pendingBeginDay = _runMode;
 
                 // 手提箱刻意不在 Spawned() 裡生成，改成第一個 tick 才生。
                 // 場景物件的 Spawned() 發生在 Runner 還在註冊場景物件的階段，
@@ -242,18 +272,96 @@ namespace AlpacasOnFire.Stall
                 SpawnSuitcase(ResolveSuitcaseSpawn());
             }
 
+            if (_pendingBeginDay && LevelDirector.Instance != null)
+            {
+                _pendingBeginDay = false;
+                BeginDay();
+            }
+
             EnsureBell();
             SyncCrates();
-
-            if (State != StallState.Open) return;
 
             var director = LevelDirector.Instance;
             if (director == null) return;
 
             // 計時交給既有的 LevelDirector（它已經是 [Networked] TickTimer），
             // 這裡只負責偵測「跑完了」並推進狀態機。
+            if (_runMode)
+            {
+                // run 模式：一天一個時鐘，時間到**不管在哪個階段**都結算
+                if (!DayActive || director.Running) return;
+                if (State != StallState.Exploring && State != StallState.Deploying && State != StallState.Open)
+                    return;
+                EndDay();
+                return;
+            }
+
+            // 非 run 模式（Stall_Test）：跟以前完全一樣，只有營業中會到期
+            if (State != StallState.Open) return;
             if (director.Running) return;
 
+            Settle();
+        }
+
+        // ---------------- 一天 ----------------
+
+        /// <summary>
+        /// 一天的開始（run 模式）：歸零本日統計、寫入今天的門檻、回到探索、開始計時。
+        /// 第一天由 FixedUpdateNetwork 的第一個 tick 呼叫，之後每天由 DismissSettlement 呼叫。
+        ///
+        /// **門檻一定要在這裡寫** —— 玩家在採集階段就要知道今天要賺多少，
+        /// 「該採多少才夠」這個決策才存在。
+        /// </summary>
+        private void BeginDay()
+        {
+            if (!HasStateAuthority) return;
+
+            RoundRevenue = 0;
+            RoundDeliveries = 0;
+            RoundMissed = 0;
+            RoundTarget = _runMode ? GameTuning.StallTargetFor(CurrentRound) : 0;
+            OpenedToday = false;
+
+            SetState(StallState.Exploring);
+
+            if (_runMode)
+            {
+                LevelDirector.Instance?.BeginStallRound(GameTuning.DayDurationSeconds);
+                DayActive = true;
+            }
+        }
+
+        /// <summary>
+        /// 天黑了（run 模式）：從 Exploring / Deploying / Open 任何一個狀態強制結算。
+        ///
+        /// 順序很重要：
+        ///  1. **先取消所有人手上待放置的機台** —— 一定要在離開佈置模式之前做。
+        ///     CancelPlacement 放回原格要走 ValidateCell，而它只在 IsArrangeMode 時放行；
+        ///     先切到 Settling 再取消的話兩次放置都會被擋下，機台就憑空消失了。
+        ///     Pending 清掉之後幽靈預覽在下一次 Render 自己隱藏。
+        ///  2. 再交給既有的 Settle()（它照舊用 director.Money 當營收、比門檻、進 Settling / RunOver）。
+        ///
+        /// 襯布沒展開不是錯誤：沒有機台、沒有 pending，Settle() 照算（營收 0，必定不達標）。
+        /// </summary>
+        private void EndDay()
+        {
+            if (!HasStateAuthority) return;
+
+            int cancelled = 0;
+            for (int i = 0; i < PlayerStallAgent.All.Count; i++)
+            {
+                var agent = PlayerStallAgent.All[i];
+                if (agent == null || agent.Object == null || !agent.Object.IsValid) continue;
+                if (!agent.HasPending) continue;
+                agent.CancelPlacement();
+                cancelled++;
+            }
+
+            Debug.Log($"[擺攤] 天黑了：於「{State}」結算" +
+                      (OpenedToday ? "" : "（今天沒有開張）") +
+                      (cancelled > 0 ? $"，取消 {cancelled} 個待放置的機台" : "") + "。");
+
+            DayActive = false;
             Settle();
         }
 
@@ -898,13 +1006,20 @@ namespace AlpacasOnFire.Stall
                 return;
             }
 
-            RoundDeliveries = 0;
-            RoundMissed = 0;
-            RoundRevenue = 0;
+            // run 模式：統計、門檻、時鐘都在 BeginDay() 早上就處理好了，開張**不重置任何東西** ——
+            // 敲鈴只是一天裡的一個決策點，不是新的一場。
+            // 非 run 模式（Stall_Test）：跟以前完全一樣，開張才歸零、才開始計時。
+            if (!_runMode)
+            {
+                RoundDeliveries = 0;
+                RoundMissed = 0;
+                RoundRevenue = 0;
 
-            // run 模式才有門檻。0 代表「沒有門檻」，後面的達標判定一律放行 ——
-            // 這就是 Stall_Test 能繼續無限輪次玩下去的原因。
-            RoundTarget = _runMode ? GameTuning.StallTargetFor(CurrentRound) : 0;
+                // 0 代表「沒有門檻」，後面的達標判定一律放行 ——
+                // 這就是 Stall_Test 能繼續無限輪次玩下去的原因。
+                RoundTarget = 0;
+            }
+            OpenedToday = true;
 
             // v6：每個素材箱從背包把自己那個顏色的存量整批裝滿，此後鎖定
             if (StallCatalog.Active.SuitcaseIsStash)
@@ -916,7 +1031,8 @@ namespace AlpacasOnFire.Stall
 
             SetState(StallState.Open);
             OrderBoard.Instance?.ResetSpawnSchedule();
-            LevelDirector.Instance?.BeginStallRound(GameTuning.StallDurationSeconds);
+            if (!_runMode)
+                LevelDirector.Instance?.BeginStallRound(GameTuning.StallDurationSeconds);
             GameAudio.PlayAt(SfxId.BusinessOpen, MatCenter);
         }
 
@@ -940,12 +1056,18 @@ namespace AlpacasOnFire.Stall
 
             OrderBoard.Instance?.ClearAllOrders();
             SetState(passed ? StallState.Settling : StallState.RunOver);
-            GameAudio.PlayAt(SfxId.BusinessClose, MatCenter);
-            RPC_RoundSettled(revenue, RoundDeliveries, RoundMissed, Capital, RoundTarget, passed);
+
+            // 襯布沒展開時 MatCenter 是預設的原點，在那裡播等於聽不到 —— 改播非定位的
+            if (MatDeployed) GameAudio.PlayAt(SfxId.BusinessClose, MatCenter);
+            else GameAudio.Play(SfxId.BusinessClose);
+
+            bool opened = !_runMode || OpenedToday;
+            RPC_RoundSettled(revenue, RoundDeliveries, RoundMissed, Capital, RoundTarget, passed, opened);
         }
 
         /// <summary>
         /// 結算畫面關掉之後回到 Exploring（攤位還在地上，可以繼續搬或收攤）。
+        /// run 模式下同時是「新的一天」：走 BeginDay()，門檻與時鐘一起重新開始。
         ///
         /// **RunOver 時什麼都不做** —— 那個 State 檢查就是擋這件事的：
         /// 這一局已經結束了，關掉結算畫面不該讓人若無其事地回去繼續擺攤。
@@ -955,7 +1077,10 @@ namespace AlpacasOnFire.Stall
         {
             if (!HasStateAuthority) return;
             if (State != StallState.Settling) return;
-            SetState(StallState.Exploring);
+
+            // run 模式：關掉結算畫面 = 隔天早上，時鐘重新從頭開始跑
+            if (_runMode) BeginDay();
+            else SetState(StallState.Exploring);
         }
 
         private void SetState(StallState next)
@@ -984,8 +1109,10 @@ namespace AlpacasOnFire.Stall
 
         [Rpc(RpcSources.StateAuthority, RpcTargets.All)]
         private void RPC_RoundSettled(int revenue, int deliveries, int missed, int capital,
-                                      int target, NetworkBool passed)
+                                      int target, NetworkBool passed, NetworkBool opened)
         {
+            // 旗標先發，結算畫面在同一幀的 OnRoundSettled 裡就能用
+            OnDayOpenedFlag?.Invoke(opened);
             OnRoundSettled?.Invoke(revenue, deliveries, missed, capital, target, passed);
         }
 

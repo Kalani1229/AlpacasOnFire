@@ -566,5 +566,12 @@ namespace AlpacasOnFire.Core
         /// 要恢復把這裡改回 true 就好（ColorIndex 仍照常分配，Alpaca_P1… 的命名也還在）。
         /// </summary>
         public static readonly bool TintPlayersByIndex = false;
+
+        // ---------- 一天的長度（run 模式）----------
+        /// <summary>一整個白天：採集 + 佈置 + 販售全包。</summary>
+        public const float DayDurationSeconds = 300f;
+
+        /// <summary>剩這麼多秒還沒開張就開始警告。</summary>
+        public const float DayNotOpenWarnSeconds = 60f;
     }
 }

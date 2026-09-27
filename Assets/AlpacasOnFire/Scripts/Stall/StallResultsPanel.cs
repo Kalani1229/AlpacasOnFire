@@ -29,6 +29,12 @@ namespace AlpacasOnFire.Stall
 
         private bool _shownForThisRound;
 
+        /// <summary>
+        /// 這一天有沒有開張過（run 模式）。由 StallManager.OnDayOpenedFlag 在 OnRoundSettled
+        /// 之前寫入；漏收 RPC 走 Update() 保險時改讀同步的 StallManager.OpenedToday。
+        /// </summary>
+        private bool _dayOpened = true;
+
         public bool IsOpen => _root != null && _root.activeSelf;
 
         private void Awake()
@@ -36,12 +42,16 @@ namespace AlpacasOnFire.Stall
             Instance = this;
             Build();
             StallManager.OnRoundSettled += Show;
+            StallManager.OnDayOpenedFlag += SetDayOpened;
         }
+
+        private void SetDayOpened(bool opened) => _dayOpened = opened;
 
         private void OnDestroy()
         {
             if (Instance == this) Instance = null;
             StallManager.OnRoundSettled -= Show;
+            StallManager.OnDayOpenedFlag -= SetDayOpened;
         }
 
         private void Build()
@@ -108,8 +118,9 @@ namespace AlpacasOnFire.Stall
         /// <summary>
         /// 結算畫面有兩套版面：
         ///
-        ///   達標   —— 照舊，多一行「第 N 輪達標，下一輪目標 XXX」
-        ///   沒達標 —— 換成「撐過了 N 輪」，**差額要大到刺眼**
+        ///   達標   —— 照舊，多一行「第 N 天達標，明天目標 XXX」
+        ///   沒達標 —— 換成「撐過了 N 天」，**差額要大到刺眼**；
+        ///            一整天沒開張的話改寫「今天沒有開張」，不要只丟一個差額
         ///
         /// 差 40 塊跟差 400 塊，玩家的反應完全不同 —— 前者會想「再來一次」，
         /// 後者會想「我哪裡做錯了」。那個數字是這一局最後留下的印象，
@@ -157,7 +168,7 @@ namespace AlpacasOnFire.Stall
             {
                 // CurrentRound 在 Settle() 裡已經 +1 了，所以它現在就是「下一輪」
                 int next = stall != null ? stall.CurrentRound : 1;
-                _runLineLabel.text = $"第 {Mathf.Max(1, next - 1)} 輪達標　—　下一輪目標 " +
+                _runLineLabel.text = $"第 {Mathf.Max(1, next - 1)} 天達標　—　明天目標 " +
                                      $"{GameTuning.StallTargetFor(next)}";
                 _runLineLabel.color = new Color(0.55f, 0.95f, 0.65f);
             }
@@ -176,15 +187,36 @@ namespace AlpacasOnFire.Stall
             int deals = stall != null ? stall.RoundDeliveries : 0;
             int shortfall = Mathf.Max(0, target - revenue);
 
-            _titleLabel.text = $"撐過了 {cleared} 輪";
+            _titleLabel.text = $"撐過了 {cleared} 天";
             _titleLabel.color = new Color(1f, 0.62f, 0.48f);
+
+            // **一整天都沒開張**：只秀差額的話，玩家會以為是「賣得不夠好」，
+            // 其實是「根本沒賣」—— 這是新玩家最常犯的錯，要直接講出來。
+            if (!_dayOpened)
+            {
+                _revenueLabel.text = "今天沒有開張";
+                _revenueLabel.fontSize = 58;
+                _revenueLabel.color = new Color(1f, 0.45f, 0.4f);
+
+                _dealsLabel.text = $"今天目標 ${target}　—　天黑之前要記得敲鈴開張";
+                _missedLabel.text = "";
+
+                _runLineLabel.text = stall != null && stall.BestSalePrice > 0
+                    ? $"最貴的一件：{stall.BestSale.Describe()}　${stall.BestSalePrice}"
+                    : "";
+                _runLineLabel.color = new Color(0.95f, 0.88f, 0.6f);
+
+                _hintLabel.text = "這一局到此為止 —— 想再來一次請重新開始場景";
+                SetContinueText("關閉");
+                return;
+            }
 
             // **差額用最大的字**，它是這一局最後留下的印象
             _revenueLabel.text = $"還差 ${shortfall}";
             _revenueLabel.fontSize = 58;
             _revenueLabel.color = new Color(1f, 0.45f, 0.4f);
 
-            _dealsLabel.text = $"本輪目標 ${target}　實際賺到 ${revenue}　｜　成交 {deals} 筆";
+            _dealsLabel.text = $"今天目標 ${target}　實際賺到 ${revenue}　｜　成交 {deals} 筆";
 
             string best = stall != null && stall.BestSalePrice > 0
                 ? $"最貴的一件：{stall.BestSale.Describe()}　${stall.BestSalePrice}"
@@ -207,6 +239,7 @@ namespace AlpacasOnFire.Stall
         {
             _root.SetActive(false);
             _shownForThisRound = false;
+            _dayOpened = true;
 
             StallManager.Instance?.RPC_RequestDismissSettlement();
 
@@ -231,6 +264,7 @@ namespace AlpacasOnFire.Stall
             bool runOver = stall.State == StallState.RunOver;
             if (!settling && !runOver) return;
 
+            _dayOpened = !stall.RunMode || stall.OpenedToday;
             Show(stall.RoundRevenue, stall.RoundDeliveries, stall.RoundMissed, stall.Capital,
                  stall.RoundTarget, passed: settling);
         }
