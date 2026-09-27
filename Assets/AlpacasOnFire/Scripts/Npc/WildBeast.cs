@@ -76,6 +76,7 @@ namespace AlpacasOnFire.Npc
 
             _ncc = GetComponent<NetworkCharacterController>();
             ConfigureController();
+            _anim.Bind(this);
 
             if (HasStateAuthority)
             {
@@ -548,7 +549,14 @@ namespace AlpacasOnFire.Npc
 
         // ---------------- 外觀 ----------------
 
-        public override void Render() => ApplyVisual(false);
+        public override void Render()
+        {
+            ApplyVisual(false);
+            _anim.Tick(_ncc, false);   // 有 Animator 才會動；佔位方塊版靜默
+        }
+
+        /// <summary>走路／待機動畫（isWalking）。表現層，不進網路狀態。</summary>
+        private readonly NpcLocomotionAnim _anim = new();
 
         private int _renderedFleece = -1;
         private int _renderedState = -1;

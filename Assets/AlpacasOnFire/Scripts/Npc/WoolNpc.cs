@@ -72,6 +72,7 @@ namespace AlpacasOnFire.Npc
             _ncc = GetComponent<NetworkCharacterController>();
             _stagger = GetComponent<StaggerStatus>();   // 舊 prefab 上可能沒有，允許 null
             ConfigureController();
+            _anim.Bind(this);
 
             if (HasStateAuthority)
             {
@@ -496,7 +497,11 @@ namespace AlpacasOnFire.Npc
         {
             ApplyColour(false);
             RenderStagger();
+            _anim.Tick(_ncc, _stagger != null && _stagger.Staggered);
         }
+
+        /// <summary>走路／待機動畫（isWalking）。表現層，不進網路狀態。</summary>
+        private readonly NpcLocomotionAnim _anim = new();
 
         /// <summary>倒地：整隻翻倒。跟玩家用同一套表現，被打的感覺才一致。</summary>
         private void RenderStagger()
