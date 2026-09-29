@@ -237,14 +237,26 @@ namespace AlpacasOnFire.Stall
             bool passed = target <= 0 || capital >= target;
 
             string head = $"第 {stall.CurrentRound} 天　夜晚　資本 {Fmt(capital)}　{TargetText(target, stall.TodayIsBalloon)}";
-            _targetLabel.text = passed ? $"{head}　已達標！" : $"{head}　還差 {Fmt(target - capital)}";
+            string result = passed ? "已達標！" : $"還差 {Fmt(target - capital)}";
+
+            // 就寢人數：單人也照樣顯示 1/1
+            StallManager.CountSleepers(out int asleep, out int total);
+            _targetLabel.text = $"{head}　{result}　　{asleep}/{Mathf.Max(1, total)} 已就寢";
             _targetLabel.color = passed ? new Color(0.45f, 0.95f, 0.5f) : new Color(1f, 0.55f, 0.45f);
 
             if (_dayWarnLabel != null)
             {
                 // 夜晚的指引是平靜的提示，不閃 —— 這不是警告，是「接下來該做什麼」
-                _dayWarnLabel.text = "動物都睡了。去找發光的柱子收工。";
-                _dayWarnLabel.color = new Color(0.78f, 0.85f, 1f, 0.95f);
+                if (!stall.BedUnlocked)
+                {
+                    _dayWarnLabel.text = "他擋在床前 —— 先跟他說話";
+                    _dayWarnLabel.color = new Color(1f, 0.75f, 0.7f, 0.95f);
+                }
+                else
+                {
+                    _dayWarnLabel.text = "動物都睡了。回出生點的床上睡覺，全員就寢就進入隔天。";
+                    _dayWarnLabel.color = new Color(0.78f, 0.85f, 1f, 0.95f);
+                }
             }
         }
 

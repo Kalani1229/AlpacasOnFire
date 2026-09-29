@@ -34,6 +34,19 @@ namespace AlpacasOnFire.Networking
             _overrideCursor = 0;
         }
 
+        /// <summary>
+        /// 第一個出生點（不推進輪流的游標）。床擺在這裡 —— 出生點就是之後的「家」。
+        /// 有程式覆寫（程序生成的城市）時用覆寫的第一個；否則用場景裡的第一個 PlayerSpawn。
+        /// 兩者都沒有就回傳 false。
+        /// </summary>
+        public static bool TryGetFirst(out Vector3 position)
+        {
+            if (_override != null && _override.Count > 0) { position = _override[0]; return true; }
+            if (Points.Count > 0 && Points[0] != null) { position = Points[0].transform.position; return true; }
+            position = default;
+            return false;
+        }
+
         /// <summary>輪流取用出生點；沒有任何出生點時回傳原點附近的預設位置。</summary>
         public static (Vector3 pos, Quaternion rot) Next()
         {

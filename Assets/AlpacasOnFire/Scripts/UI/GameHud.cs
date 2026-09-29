@@ -416,10 +416,11 @@ namespace AlpacasOnFire.UI
                 return;
             }
 
-            // 失控中不給任何互動提示 —— 按了也沒用，顯示出來只會讓人一直按
+            // 失控中不給任何互動提示 —— 按了也沒用，顯示出來只會讓人一直按。
+            // 睡著例外：唯一能做的事是起床，要說出來
             if (p.IsIncapacitated)
             {
-                _promptLabel.text = "站不起來…";
+                _promptLabel.text = p.IsAsleep ? "睡著了　[左鍵] 起床" : "站不起來…";
                 _carryLabel.text = "";
                 _prankLabel.text = "";
                 _sprayBarBg.gameObject.SetActive(false);

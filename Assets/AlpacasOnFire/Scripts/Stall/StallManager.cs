@@ -117,6 +117,13 @@ namespace AlpacasOnFire.Stall
         /// <summary>run 模式：今天有沒有開張過。結算畫面要說「今天沒有開張」。</summary>
         [Networked] public NetworkBool OpenedToday { get; set; }
 
+        /// <summary>
+        /// 大額日的夜晚：有沒有人跟大哥說過話了。false 的時候床拒絕互動 ——
+        /// 「擋路」是規則層的，不用碰撞體（他站在出生點旁邊，實體碰撞會把人卡住）。
+        /// BeginDay() 重置。非大額日視同 true（見 BedUnlocked）。
+        /// </summary>
+        [Networked] public NetworkBool CreditorCleared { get; set; }
+
         /// <summary>這一局賣出過最貴的一件衣服，結算畫面要秀。</summary>
         [Networked] public GarmentSpec BestSale { get; set; }
         [Networked] public int BestSalePrice { get; set; }
@@ -147,6 +154,27 @@ namespace AlpacasOnFire.Stall
 
         /// <summary>今天是不是大額日（run 模式）。HUD 用顏色標出來，不寫字。</summary>
         public bool TodayIsBalloon => _runMode && CreditorSchedule.IsBalloonDay(CurrentRound);
+
+        /// <summary>床能不能躺：非大額日一律可以；大額日要先有人跟大哥說過話。</summary>
+        public bool BedUnlocked => !TodayIsBalloon || CreditorCleared;
+
+        /// <summary>
+        /// 目前有幾個玩家躺下了、總共幾個。**直接走訪 PlayerController.All**：
+        /// 中途加入的人天生 IsAsleep = false、斷線的人會從清單裡消失，數字永遠對得上。
+        /// 任何端都可以呼叫（HUD 用），讀的都是同步欄位。
+        /// </summary>
+        public static void CountSleepers(out int asleep, out int total)
+        {
+            asleep = 0;
+            total = 0;
+            for (int i = 0; i < PlayerController.All.Count; i++)
+            {
+                var p = PlayerController.All[i];
+                if (p == null || p.Object == null || !p.Object.IsValid) continue;
+                total++;
+                if (p.IsAsleep) asleep++;
+            }
+        }
 
         /// <summary>
         /// 離目標還差多少（達標後是 0）。
@@ -264,7 +292,7 @@ namespace AlpacasOnFire.Stall
             OrderBoard.OnDeliveryResult -= HandleDeliveryResult;
 
             if (_matVisual != null) Destroy(_matVisual.gameObject);
-            NightMarker.DestroyInstance();
+            Bed.DestroyInstance();
             if (Instance == this) Instance = null;
         }
 
@@ -318,6 +346,13 @@ namespace AlpacasOnFire.Stall
             EnsureBell();
             SyncCrates();
 
+            // run 模式的夜晚：全員睡著就推進。夜晚不計時，所以不看 LevelDirector
+            if (_runMode && IsNight)
+            {
+                TickNight();
+                return;
+            }
+
             var director = LevelDirector.Instance;
             if (director == null) return;
 
@@ -361,6 +396,16 @@ namespace AlpacasOnFire.Stall
             RoundTarget = _runMode ? CreditorSchedule.TargetFor(CurrentRound) : 0;
             OpenedToday = false;
 
+            // 債主 P2：天亮了，所有人起床、大哥下次大額日要再擋一次。
+            // 漏掉任何一個，隔天不是直接跳過夜晚、就是大哥擋不住路。
+            CreditorCleared = false;
+            for (int i = 0; i < PlayerController.All.Count; i++)
+            {
+                var p = PlayerController.All[i];
+                if (p == null || p.Object == null || !p.Object.IsValid) continue;
+                p.IsAsleep = false;
+            }
+
             SetState(StallState.Exploring);
 
             if (_runMode)
@@ -372,7 +417,7 @@ namespace AlpacasOnFire.Stall
 
         /// <summary>
         /// 天黑了（run 模式）：從 Exploring / Deploying / Open 任何一個狀態進入**夜晚**。
-        /// 結算不在這裡做 —— 延到玩家在夜裡找到收工柱子、呼叫 EndNight() 的時候。
+        /// 結算不在這裡做 —— 延到夜裡全員上床睡覺、TickNight() 呼叫 EndNight() 的時候。
         ///
         /// 順序很重要：
         ///  1. **先取消所有人手上待放置的機台** —— 一定要在離開佈置模式之前做。
@@ -442,6 +487,36 @@ namespace AlpacasOnFire.Stall
         }
 
         /// <summary>
+        /// 夜晚每個 tick：所有在場的玩家都躺下了就收工。只在 StateAuthority、只在 IsNight 呼叫。
+        ///
+        /// 不會卡死的理由：
+        ///   - 斷線的玩家會從 PlayerController.All 消失，剩下的人全睡了就推進
+        ///   - 中途加入的玩家是醒著的，走去床上躺下就好（床每個人都能用）
+        ///   - 一個玩家都沒有（total = 0）時不推進 —— 那是房間空了，不是大家都睡了
+        /// 大額日還沒跟大哥說話時床根本躺不上去，所以這裡不用另外檢查 BedUnlocked。
+        /// </summary>
+        private void TickNight()
+        {
+            CountSleepers(out int asleep, out int total);
+            if (total > 0 && asleep >= total)
+            {
+                Debug.Log($"[夜晚] 全員就寢（{asleep}/{total}），收工。");
+                EndNight();
+            }
+        }
+
+        /// <summary>
+        /// 大額日：有人跟大哥說話了。只在 StateAuthority 呼叫（由 CreditorStandIn 的互動觸發）。
+        /// 說完所有人的床都解鎖，所以提示發給全部人。
+        /// </summary>
+        public void ClearCreditor()
+        {
+            if (!HasStateAuthority || !IsNight || CreditorCleared) return;
+            CreditorCleared = true;
+            RPC_Notice("他看了看你的帳，點點頭走開了。");
+        }
+
+        /// <summary>
         /// **除錯用（N 鍵）**：不等時鐘跑完，直接天黑。走的是跟時間到完全相同的 EndDay()，
         /// 所以取消待放置、請走顧客、定格營收這些收尾一樣都會做。
         /// 只在 run 模式的白天（Exploring / Deploying / Open）有效。回傳有沒有成功。
@@ -463,7 +538,7 @@ namespace AlpacasOnFire.Stall
         }
 
         /// <summary>
-        /// 收工（由收工柱子呼叫，下一批換成債主）。只在 StateAuthority、只在夜晚有效。
+        /// 收工（全員就寢時由 TickNight 呼叫）。只在 StateAuthority、只在夜晚有效。
         /// 做的事就是原本 EndDay() 最後那一行：Settle() —— 之後的 Settling / RunOver /
         /// DismissSettlement / BeginDay 全部沿用，狀態機其他地方一行都沒改。
         /// </summary>
@@ -1196,7 +1271,7 @@ namespace AlpacasOnFire.Stall
         }
 
         /// <summary>
-        /// run 模式：夜晚結束（玩家互動收工柱子）時的結算。
+        /// run 模式：夜晚結束（全員就寢）時的結算。
         ///
         /// **不再判定通過與否** —— 天黑時 EndDay() 已經判完、也已經入帳了。
         /// 能走到這裡就代表過關：記一天、換下一天、跳結算畫面。
@@ -1258,7 +1333,7 @@ namespace AlpacasOnFire.Stall
             OnStallNotice?.Invoke(message);
         }
 
-        /// <summary>只對某一個玩家說一句話（例如非房主去按收工柱子）。只在 StateAuthority 呼叫。</summary>
+        /// <summary>只對某一個玩家說一句話（例如大額日被大哥擋住還想上床的人）。只在 StateAuthority 呼叫。</summary>
         public void NoticeTo(PlayerRef player, string message)
         {
             if (!HasStateAuthority) return;
@@ -1293,8 +1368,8 @@ namespace AlpacasOnFire.Stall
                 OnStateChanged?.Invoke(State);
             }
 
-            // 夜晚的收工柱子：本機物件，跟著同步的 State 生滅（見 NightMarker 的說明）
-            NightMarker.Sync(this);
+            // 夜晚的床（與大額日的大哥）：本機物件，跟著同步的狀態生滅（見 Bed 的說明）
+            Bed.Sync(this);
 
             if (MatDeployed)
             {

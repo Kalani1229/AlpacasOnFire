@@ -81,6 +81,15 @@ namespace AlpacasOnFire.Player
 
         [Networked] private NetworkButtons PreviousButtons { get; set; }
 
+        /// <summary>
+        /// 夜晚躺在床上了（債主 P2：全員睡覺才推進）。
+        ///
+        /// **放在玩家身上，不放 StallManager 的 bitmask** —— 不用維護「第幾個玩家是第幾個 bit」，
+        /// 中途加入的人天生是 false、斷線的人連同這個欄位一起從 PlayerController.All 消失，
+        /// 計數永遠對得上。只由狀態權威寫（床的互動、起床、BeginDay 重置）。
+        /// </summary>
+        [Networked] public NetworkBool IsAsleep { get; set; }
+
         private NetworkCharacterController _ncc;
         private PlayerCarry _carry;
         private Renderer[] _fadeRenderers;
@@ -208,6 +217,12 @@ namespace AlpacasOnFire.Player
 
                 var pressed = input.Buttons.GetPressed(PreviousButtons);
                 PreviousButtons = input.Buttons;
+
+                // 睡著的時候唯一能做的事：按左鍵起床。
+                // 放在下面那一段之前 —— 躺下的那一下是在下面那段裡發生的（互動床），
+                // 那一刻 IsAsleep 還是 false，所以不會同一次按鍵躺下又起來。
+                if (HasStateAuthority && IsAsleep && pressed.IsSet(GameButton.Interact))
+                    IsAsleep = false;
 
                 // 失控中不能做任何事：不能互動、不能丟、不能用工具。
                 // 移動已經在 Move() 裡被吃掉了，這裡擋的是動作。
@@ -422,7 +437,7 @@ namespace AlpacasOnFire.Player
         }
 
         /// <summary>從昏倒到完全站好為止都不能操作。所有「擋操作」的地方用這個，視覺仍看 IsStaggered。</summary>
-        public bool IsIncapacitated => IsStaggered || IsRecovering;
+        public bool IsIncapacitated => IsStaggered || IsRecovering || IsAsleep;
 
         private void Move(Vector2 moveInput)
         {
@@ -632,6 +647,7 @@ namespace AlpacasOnFire.Player
         public override void Render()
         {
             ApplyBodyColor();
+            RenderSleep();
 
             if (_garmentRenderer != null)
             {
@@ -699,6 +715,47 @@ namespace AlpacasOnFire.Player
         private float _bodyTilt;
         private Quaternion _bodyBaseRotation = Quaternion.identity;
         private bool _bodyTiltApplied;
+
+        // ---------------- 睡覺的樣子 ----------------
+        //
+        // 沒有睡覺動畫，先把模型往側邊放倒、稍微墊高（不然半截會陷進地板）。
+        // 轉的是 Visual 這個容器，不是骨頭 —— 跟 ragdoll 不打架（睡著時不會被打倒）。
+        // 只讀同步的 IsAsleep，所有端看到的一樣。
+
+        private const float SleepRoll = 85f;
+        private const float SleepLift = 0.35f;
+
+        private Transform _sleepPivot;
+        private bool _sleepPivotSearched;
+        private Quaternion _sleepBaseRot;
+        private Vector3 _sleepBasePos;
+        private float _sleep01;
+
+        private void RenderSleep()
+        {
+            if (!_sleepPivotSearched)
+            {
+                _sleepPivotSearched = true;
+                _sleepPivot = transform.Find("Visual");
+                if (_sleepPivot == null && _bodyRenderer != null) _sleepPivot = _bodyRenderer.transform;
+            }
+            if (_sleepPivot == null) return;
+
+            bool asleep = IsAsleep;
+            if (asleep && _sleep01 <= 0f)
+            {
+                // 剛開始躺：記下站著的姿勢，醒來要還原
+                _sleepBaseRot = _sleepPivot.localRotation;
+                _sleepBasePos = _sleepPivot.localPosition;
+            }
+
+            float target = asleep ? 1f : 0f;
+            if (Mathf.Approximately(_sleep01, target)) return;
+
+            _sleep01 = Mathf.MoveTowards(_sleep01, target, Time.deltaTime / 0.5f);
+            _sleepPivot.localRotation = _sleepBaseRot * Quaternion.Euler(0f, 0f, SleepRoll * _sleep01);
+            _sleepPivot.localPosition = _sleepBasePos + Vector3.up * (SleepLift * _sleep01);
+        }
 
         /// <summary>
         /// 材質名稱裡有這些字的才會被刷上玩家識別色。
