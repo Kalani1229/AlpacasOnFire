@@ -573,5 +573,9 @@ namespace AlpacasOnFire.Core
 
         /// <summary>剩這麼多秒還沒開張就開始警告。</summary>
         public const float DayNotOpenWarnSeconds = 60f;
+
+        // ---------- 夜晚 ----------
+        /// <summary>天黑到全暗的過渡時間（純視覺）。</summary>
+        public const float NightFadeSeconds = 3f;
     }
 }

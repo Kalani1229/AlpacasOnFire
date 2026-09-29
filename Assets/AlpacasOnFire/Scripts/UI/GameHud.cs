@@ -373,9 +373,19 @@ namespace AlpacasOnFire.UI
                 return;
             }
 
-            float remain = d.Running ? d.RemainingSeconds : 0f;
-            _timerLabel.text = $"{Mathf.FloorToInt(remain / 60f):00}:{Mathf.FloorToInt(remain % 60f):00}";
-            _timerLabel.color = remain <= 15f ? new Color(1f, 0.4f, 0.35f) : Color.white;
+            // 夜晚不計時：顯示「夜晚」，不要留一個紅色的 00:00 讓人以為還在倒數
+            var stall = Stall.StallManager.Instance;
+            if (stall != null && stall.Object != null && stall.Object.IsValid && stall.IsNight)
+            {
+                _timerLabel.text = "夜晚";
+                _timerLabel.color = new Color(0.75f, 0.82f, 1f);
+            }
+            else
+            {
+                float remain = d.Running ? d.RemainingSeconds : 0f;
+                _timerLabel.text = $"{Mathf.FloorToInt(remain / 60f):00}:{Mathf.FloorToInt(remain % 60f):00}";
+                _timerLabel.color = remain <= 15f ? new Color(1f, 0.4f, 0.35f) : Color.white;
+            }
 
             _moneyLabel.text = $"${d.Money}";
             if (_moneyPulse > 0f)

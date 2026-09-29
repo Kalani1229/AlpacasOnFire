@@ -112,7 +112,11 @@ namespace AlpacasOnFire.Npc
             }
         }
 
-        private void DismissAll()
+        /// <summary>
+        /// 請所有排隊中的顧客離開，**不扣款**（是打烊不是失約）。只在 StateAuthority 呼叫。
+        /// StallManager.EndDay() 天黑時直接叫它，不等下一個 tick。
+        /// </summary>
+        public void DismissAll()
         {
             for (int i = 0; i < WoolNpc.All.Count; i++)
             {

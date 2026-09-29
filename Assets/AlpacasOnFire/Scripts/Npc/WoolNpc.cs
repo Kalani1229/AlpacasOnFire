@@ -30,7 +30,8 @@ namespace AlpacasOnFire.Npc
         /// <summary>場上所有的 NPC。批 B 的顧客系統要從這裡挑人，避免每次 FindObjectsOfType。</summary>
         public static readonly List<WoolNpc> All = new();
 
-        private enum NpcState : byte { Wander = 0, Pause = 1, Flee = 2 }
+        // 只能往後加（專案規則：enum 只增不改）
+        private enum NpcState : byte { Wander = 0, Pause = 1, Flee = 2, Sleep = 3 }
 
         [Header("Wool NPC")]
         [Tooltip("開場時身上長哪一種顏色的毛。場景建置器會逐隻設定。" +
@@ -73,6 +74,7 @@ namespace AlpacasOnFire.Npc
             _stagger = GetComponent<StaggerStatus>();   // 舊 prefab 上可能沒有，允許 null
             ConfigureController();
             _anim.Bind(this);
+            _sleepVisual.Bind(transform, SelfTinted());
 
             if (HasStateAuthority)
             {
@@ -129,12 +131,26 @@ namespace AlpacasOnFire.Npc
                 RelocateToCity();
             }
 
-            TickRegen();
+            // 夜晚（run 模式）：睡覺不長毛
+            bool night = NightNow;
+            if (!night) TickRegen();
 
             // 當顧客的時候完全讓開 —— Customer 那支會接管 NCC。
             // **這裡不能呼叫 _ncc.Move()**，兩個元件同一 tick 都推同一個
             // CharacterController 的話，後跑的會覆蓋先跑的，顧客就走不動了。
+            // （天黑時還在離開的顧客會先走完，Release 之後下一個 tick 才睡）
             if (IsCustomer) return;
+
+            // 入睡／醒來。醒來一律回到 Wander（BeginDay 之後）
+            if (night && State != NpcState.Sleep)
+            {
+                StateRaw = (int)NpcState.Sleep;
+                _path.Clear();
+            }
+            else if (!night && State == NpcState.Sleep)
+            {
+                EnterWander();
+            }
 
             // 被打倒：趴著不動，但還是要呼叫 Move() 讓重力與擊退繼續作用
             if (_stagger != null && _stagger.Staggered)
@@ -145,6 +161,7 @@ namespace AlpacasOnFire.Npc
 
             switch (State)
             {
+                case NpcState.Sleep: _ncc.Move(ApplyKnock(Vector3.zero)); break;   // 不動，但重力照樣作用
                 case NpcState.Flee:  TickFlee();  break;
                 case NpcState.Pause: TickPause(); break;
                 default:             TickWander(); break;
@@ -215,6 +232,33 @@ namespace AlpacasOnFire.Npc
             }
 
             _ncc.Move(ApplyKnock(dir));
+        }
+
+        // ---------------- 夜晚 ----------------
+
+        /// <summary>
+        /// 現在該不該睡。讀 StallManager 的同步狀態，run 模式的夜晚（到隔天早上 BeginDay 為止）才是 true。
+        /// Stall_Test（非 run 模式）永遠 false —— 那裡的動物不睡。
+        /// </summary>
+        private static bool NightNow
+        {
+            get
+            {
+                var stall = StallManager.Instance;
+                return stall != null && stall.Object != null && stall.Object.IsValid && stall.AnimalsAsleep;
+            }
+        }
+
+        /// <summary>睡著了（同步狀態，所有端一致）。</summary>
+        public bool IsAsleep => State == NpcState.Sleep;
+
+        private readonly NpcSleepVisual _sleepVisual = new();
+
+        private IEnumerable<Renderer> SelfTinted()
+        {
+            if (_bodyRenderer != null) yield return _bodyRenderer;
+            if (_fleeceTufts == null) yield break;
+            foreach (var t in _fleeceTufts) if (t != null) yield return t;
         }
 
         // ---------------- 地圖 B：NavMesh ----------------
@@ -361,6 +405,7 @@ namespace AlpacasOnFire.Npc
         private bool TryShear(Vector3 shearerPosition)
         {
             if (!HasStateAuthority || Fleece <= 0) return false;
+            if (IsAsleep) return false;   // 睡著的動物一律剃不到
 
             var stash = TeamStash.Instance;
             if (stash == null)
@@ -385,8 +430,11 @@ namespace AlpacasOnFire.Npc
 
         public Transform StaggerAnchor => InteractionAnchor;
 
-        /// <summary>當顧客的時候不能被打 —— 排隊中的客人被砸倒只會變成 bug 展示。</summary>
-        public bool CanBeStaggered => Object != null && Object.IsValid && !IsCustomer;
+        /// <summary>
+        /// 當顧客的時候不能被打 —— 排隊中的客人被砸倒只會變成 bug 展示。
+        /// **睡著的也不能**：卡車砸睡著的羊會掉一地毛，夜晚就變成另一種採集時段了。
+        /// </summary>
+        public bool CanBeStaggered => Object != null && Object.IsValid && !IsCustomer && !IsAsleep;
 
         public string StaggerDisplayName => $"{PlaceholderPalette.DyeName(WoolColor)}毛羊";
 
@@ -460,6 +508,9 @@ namespace AlpacasOnFire.Npc
             if (IsCustomer) return false;
             if (ctx.Player == null) return false;
 
+            // 睡著：仍然回 true，提示要說「牠睡著了」而不是靜默無反應
+            if (IsAsleep) return true;
+
             // 倒在地上的羊不能剃 —— 要先讓牠爬起來。
             // 這是卡車的取捨：一次把三份毛打散在地上，但那一秒內你剃不到牠。
             if (_stagger != null && _stagger.Staggered) return false;
@@ -472,6 +523,7 @@ namespace AlpacasOnFire.Npc
         {
             if (!CanInteract(in ctx)) return null;
 
+            if (IsAsleep) return "牠睡著了";
             if (Fleece <= 0) return "牠身上的毛剃光了";
 
             string colour = PlaceholderPalette.DyeName(WoolColor);
@@ -482,6 +534,7 @@ namespace AlpacasOnFire.Npc
         public void Interact(in InteractionContext ctx)
         {
             if (!HasStateAuthority) return;
+            if (IsAsleep) return;
             if (_stagger != null && _stagger.Staggered) return;
             if (Fleece <= 0) return;
 
@@ -497,7 +550,8 @@ namespace AlpacasOnFire.Npc
         {
             ApplyColour(false);
             RenderStagger();
-            _anim.Tick(_ncc, _stagger != null && _stagger.Staggered);
+            _anim.Tick(_ncc, (_stagger != null && _stagger.Staggered) || IsAsleep);
+            _sleepVisual.Tick(IsAsleep);
         }
 
         /// <summary>走路／待機動畫（isWalking）。表現層，不進網路狀態。</summary>
@@ -535,12 +589,16 @@ namespace AlpacasOnFire.Npc
 
         private int _renderedFleece = -1;
         private int _renderedColour = -1;
+        private bool _renderedAsleep;
 
         private void ApplyColour(bool force)
         {
-            if (!force && _renderedFleece == Fleece && _renderedColour == ColorRaw) return;
+            bool asleep = IsAsleep;
+            if (!force && _renderedFleece == Fleece && _renderedColour == ColorRaw && _renderedAsleep == asleep) return;
             _renderedFleece = Fleece;
             _renderedColour = ColorRaw;
+            _renderedAsleep = asleep;
+            float dim = asleep ? NpcSleepVisual.DimFactor : 1f;
 
             _mpb ??= new MaterialPropertyBlock();
 
@@ -550,7 +608,7 @@ namespace AlpacasOnFire.Npc
                 var c = Fleece > 0
                     ? PlaceholderPalette.Dye(WoolColor)
                     : new Color(0.78f, 0.76f, 0.72f);
-                Tint(_bodyRenderer, c);
+                Tint(_bodyRenderer, c * dim);
             }
 
             // 毛：剩幾份就顯示幾撮
@@ -560,7 +618,7 @@ namespace AlpacasOnFire.Npc
                 if (_fleeceTufts[i] == null) continue;
                 bool on = i < Fleece;
                 if (_fleeceTufts[i].enabled != on) _fleeceTufts[i].enabled = on;
-                if (on) Tint(_fleeceTufts[i], PlaceholderPalette.Dye(WoolColor));
+                if (on) Tint(_fleeceTufts[i], PlaceholderPalette.Dye(WoolColor) * dim);
             }
         }
 

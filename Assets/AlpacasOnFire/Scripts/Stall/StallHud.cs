@@ -94,6 +94,9 @@ namespace AlpacasOnFire.Stall
                 case StallState.Open:
                     ShowNotice("開張！Space 恢復成操作機台");
                     break;
+                case StallState.Night:
+                    ShowNotice("天黑了 —— 今天的生意結束");
+                    break;
             }
         }
 
@@ -155,6 +158,12 @@ namespace AlpacasOnFire.Stall
         {
             if (_targetLabel == null) return;
 
+            if (stall.RunMode && stall.IsNight)
+            {
+                UpdateNight(stall);
+                return;
+            }
+
             bool dayRunning = stall.RunMode && stall.DayActive && stall.RoundTarget > 0
                               && stall.State != StallState.Settling && stall.State != StallState.RunOver;
 
@@ -191,6 +200,30 @@ namespace AlpacasOnFire.Stall
             }
 
             UpdateNotOpenWarning(stall, remain);
+        }
+
+        /// <summary>
+        /// 夜晚：白天那一行換成「夜晚」+ 今天的成績。
+        /// **收工前就要看得出過不過得了** —— 已賺、目標、達標與否都寫出來，
+        /// 不要等結算畫面才揭曉（那時候已經沒得反悔了，而且下一批債主就站在那裡）。
+        /// </summary>
+        private void UpdateNight(StallManager stall)
+        {
+            int earned = stall.CurrentRevenue;   // 入夜時定格的今天營收
+            int target = stall.RoundTarget;
+            bool passed = target <= 0 || earned >= target;
+
+            _targetLabel.text = passed
+                ? $"第 {stall.CurrentRound} 天　夜晚　今天賺了 {earned}　目標 {target}　已達標！"
+                : $"第 {stall.CurrentRound} 天　夜晚　今天賺了 {earned}　目標 {target}　還差 {target - earned}";
+            _targetLabel.color = passed ? new Color(0.45f, 0.95f, 0.5f) : new Color(1f, 0.55f, 0.45f);
+
+            if (_dayWarnLabel != null)
+            {
+                // 夜晚的指引是平靜的提示，不閃 —— 這不是警告，是「接下來該做什麼」
+                _dayWarnLabel.text = "動物都睡了。去找發光的柱子收工。";
+                _dayWarnLabel.color = new Color(0.78f, 0.85f, 1f, 0.95f);
+            }
         }
 
         /// <summary>
@@ -271,6 +304,7 @@ namespace AlpacasOnFire.Stall
                 StallState.Open     => ("營業中", new Color(0.10f, 0.30f, 0.45f, 0.9f)),
                 StallState.Settling => ("結算中", new Color(0.25f, 0.20f, 0.35f, 0.9f)),
                 StallState.RunOver  => ("這一局結束", new Color(0.42f, 0.14f, 0.16f, 0.92f)),
+                StallState.Night    => ("夜晚", new Color(0.10f, 0.12f, 0.30f, 0.92f)),
                 _ when stall.IsArrangeMode => ("佈置模式", new Color(0.40f, 0.28f, 0.08f, 0.9f)),
                 _                   => ("探索中", new Color(0.12f, 0.13f, 0.16f, 0.85f)),
             };

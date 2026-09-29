@@ -125,6 +125,23 @@ namespace AlpacasOnFire.DebugTools
             }
 
             if (kb.bKey.wasPressedThisFrame) TeleportToBeast();
+            if (kb.nKey.wasPressedThisFrame) ForceNight();
+        }
+
+        /// <summary>N：直接天黑。不用等五分鐘的白天跑完才能測夜晚。</summary>
+        private static void ForceNight()
+        {
+            var stall = Stall.StallManager.Instance;
+            if (stall == null || stall.Object == null || !stall.Object.IsValid)
+            {
+                Debug.LogWarning("[Debug] 場景裡沒有 StallManager。");
+                return;
+            }
+
+            if (stall.DebugForceNight(out string reason))
+                Debug.Log("[Debug] 直接天黑。");
+            else
+                Debug.LogWarning($"[Debug] 不能入夜：{reason}");
         }
 
         /// <summary>
@@ -352,7 +369,7 @@ namespace AlpacasOnFire.DebugTools
 
                 text += $"[{binding.KeyLabel}] {label}　";
             }
-            text += "[B] 瞬移到大動物旁邊　";
+            text += "[B] 瞬移到大動物旁邊　[N] 直接天黑　";
 
             GUI.Label(new Rect(12f, Screen.height - 26f, 900f, 20f), text, style);
         }

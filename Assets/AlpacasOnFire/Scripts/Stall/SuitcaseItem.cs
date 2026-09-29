@@ -231,6 +231,7 @@ namespace AlpacasOnFire.Stall
             {
                 if (ctx.Held != this) return null;
                 if (Stall.MatDeployed) return "攤位已經擺開了";
+                if (Stall.IsNight) return "天黑了，明天再擺";
 
                 var reason = Stall.CheckDeploySpot(ctx.Player.transform.position,
                                                    ctx.Player.transform.eulerAngles.y, out _, out _);
@@ -242,6 +243,7 @@ namespace AlpacasOnFire.Stall
             if (IsDeployed)
             {
                 if (Stall.IsBusinessMode) return "營業中不能收攤";
+                if (Stall.IsNight) return "天黑了，明天再收攤";
 
                 return IsStash
                     ? $"[Space] 收攤　[右鍵] 選材料（{SelectedCount}/{ColorSlots}）"
@@ -270,7 +272,7 @@ namespace AlpacasOnFire.Stall
                 return;
             }
 
-            // ---- 收攤 ----
+            // ---- 收攤 ----（夜裡由 CollectStall 自己擋下並提示）
             if (IsDeployed && !Stall.IsBusinessMode)
             {
                 Stall.CollectStall(ctx.Player, this);

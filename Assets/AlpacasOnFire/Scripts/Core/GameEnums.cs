@@ -136,6 +136,7 @@ namespace AlpacasOnFire.Core
 
         // 一律往後加，不重排。
         RunOver   = 4, // 沒達標，這一局結束（只有 run 模式會進到這裡）
+        Night     = 5, // 夜晚：動物睡了，做不了生意；玩家可以走動（只有 run 模式會進到這裡）
     }
 
     /// <summary>

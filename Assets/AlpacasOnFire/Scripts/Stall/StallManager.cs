@@ -152,8 +152,28 @@ namespace AlpacasOnFire.Stall
 
         // ---------------- 推導出來的狀態 ----------------
 
-        /// <summary>佈置模式：襯布已展開，而且不在營業／結算中。</summary>
-        public bool IsArrangeMode => MatDeployed && State != StallState.Open && State != StallState.Settling;
+        /// <summary>
+        /// 佈置模式：襯布已展開，而且不在營業／結算／夜晚中。
+        /// **夜晚一定要排除**，不然夜裡還能搬機台、放置預覽、補素材箱、生開張鈴。
+        /// RunOver 也排除（一局結束了，不該再佈置）。
+        /// </summary>
+        public bool IsArrangeMode => MatDeployed
+                                     && State != StallState.Open
+                                     && State != StallState.Settling
+                                     && State != StallState.Night
+                                     && State != StallState.RunOver;
+
+        /// <summary>夜晚（只有 run 模式會進入）。</summary>
+        public bool IsNight => State == StallState.Night;
+
+        /// <summary>
+        /// 動物該睡覺的時段：夜晚，以及收工後的結算畫面（天還沒亮）。
+        /// BeginDay() 回到 Exploring 就醒來。非 run 模式永遠是 false —— Stall_Test 的動物不睡。
+        /// </summary>
+        public bool AnimalsAsleep => _runMode
+                                     && (State == StallState.Night
+                                         || State == StallState.Settling
+                                         || State == StallState.RunOver);
 
         /// <summary>營業模式：機台照常運作，但不能再移動。</summary>
         public bool IsBusinessMode => State == StallState.Open;
@@ -183,6 +203,9 @@ namespace AlpacasOnFire.Stall
             StallCatalog.Active = _villageLoadout ? StallLoadout.Village : StallLoadout.Classic;
 
             StallUIRoot.EnsureExists();
+
+            // run 模式才有夜晚。光照是本機視覺，從同步的 State 推導，每一端各建一個
+            if (_runMode) DayNightLighting.EnsureExists();
 
             // 襯布放不下全部裝備是設計錯誤，不是執行期狀況 —— 一開場就吼出來
             if (!StallCatalog.MatFitsAllDevices(out int required, out int available))
@@ -228,6 +251,7 @@ namespace AlpacasOnFire.Stall
             OrderBoard.OnDeliveryResult -= HandleDeliveryResult;
 
             if (_matVisual != null) Destroy(_matVisual.gameObject);
+            NightMarker.DestroyInstance();
             if (Instance == this) Instance = null;
         }
 
@@ -332,16 +356,19 @@ namespace AlpacasOnFire.Stall
         }
 
         /// <summary>
-        /// 天黑了（run 模式）：從 Exploring / Deploying / Open 任何一個狀態強制結算。
+        /// 天黑了（run 模式）：從 Exploring / Deploying / Open 任何一個狀態進入**夜晚**。
+        /// 結算不在這裡做 —— 延到玩家在夜裡找到收工柱子、呼叫 EndNight() 的時候。
         ///
         /// 順序很重要：
         ///  1. **先取消所有人手上待放置的機台** —— 一定要在離開佈置模式之前做。
         ///     CancelPlacement 放回原格要走 ValidateCell，而它只在 IsArrangeMode 時放行；
         ///     先切到 Settling 再取消的話兩次放置都會被擋下，機台就憑空消失了。
         ///     Pending 清掉之後幽靈預覽在下一次 Render 自己隱藏。
-        ///  2. 再交給既有的 Settle()（它照舊用 director.Money 當營收、比門檻、進 Settling / RunOver）。
+        ///  2. 請走所有排隊中的顧客（不扣錢，是打烊不是失約），不然他們會在夜裡把耐心耗完扣你錢。
+        ///  3. 定格今天的營收（夜裡 HUD 要顯示今天的成績），然後進入 Night。
         ///
-        /// 襯布沒展開不是錯誤：沒有機台、沒有 pending，Settle() 照算（營收 0，必定不達標）。
+        /// 襯布沒展開不是錯誤：沒有機台、沒有 pending，夜晚照進，收工時 Settle() 照算
+        /// （營收 0，必定不達標）。
         /// </summary>
         private void EndDay()
         {
@@ -357,11 +384,51 @@ namespace AlpacasOnFire.Stall
                 cancelled++;
             }
 
-            Debug.Log($"[擺攤] 天黑了：於「{State}」結算" +
+            // 打烊：顧客一律走人不扣錢；訂單板（Stall_Test 那套）也清掉，免得夜裡逾時扣款
+            FindAnyObjectByType<Npc.CustomerQueue>()?.DismissAll();
+            OrderBoard.Instance?.ClearAllOrders();
+
+            Debug.Log($"[擺攤] 天黑了：於「{State}」入夜" +
                       (OpenedToday ? "" : "（今天沒有開張）") +
                       (cancelled > 0 ? $"，取消 {cancelled} 個待放置的機台" : "") + "。");
 
+            // 定格今天的營收：夜裡 DayActive = false，CurrentRevenue 會改讀 RoundRevenue
+            var director = LevelDirector.Instance;
+            RoundRevenue = director != null ? director.Money : 0;
+
             DayActive = false;
+            SetState(StallState.Night);
+        }
+
+        /// <summary>
+        /// **除錯用（N 鍵）**：不等時鐘跑完，直接天黑。走的是跟時間到完全相同的 EndDay()，
+        /// 所以取消待放置、請走顧客、定格營收這些收尾一樣都會做。
+        /// 只在 run 模式的白天（Exploring / Deploying / Open）有效。回傳有沒有成功。
+        /// </summary>
+        public bool DebugForceNight(out string reason)
+        {
+            reason = null;
+            if (!HasStateAuthority) { reason = "只有主機端能用"; return false; }
+            if (!_runMode) { reason = "這個場景沒有開 run 模式，沒有夜晚"; return false; }
+            if (!DayActive) { reason = IsNight ? "已經是夜晚了" : "現在不是白天"; return false; }
+            if (State != StallState.Exploring && State != StallState.Deploying && State != StallState.Open)
+            {
+                reason = $"目前狀態是 {State}，不能入夜";
+                return false;
+            }
+
+            EndDay();
+            return true;
+        }
+
+        /// <summary>
+        /// 收工（由收工柱子呼叫，下一批換成債主）。只在 StateAuthority、只在夜晚有效。
+        /// 做的事就是原本 EndDay() 最後那一行：Settle() —— 之後的 Settling / RunOver /
+        /// DismissSettlement / BeginDay 全部沿用，狀態機其他地方一行都沒改。
+        /// </summary>
+        public void EndNight()
+        {
+            if (!HasStateAuthority || !IsNight) return;
             Settle();
         }
 
@@ -615,6 +682,13 @@ namespace AlpacasOnFire.Stall
             if (!HasStateAuthority) return false;
             if (MatDeployed) return false;
 
+            // 夜裡開箱會把狀態從 Night 切成 Deploying：夜晚消失、時鐘也不跑，整局卡死
+            if (IsNight)
+            {
+                RPC_Notice("天黑了，明天再擺");
+                return false;
+            }
+
             StallGeometry.PlannedMat(playerPos, playerYaw, out var center, out float yaw);
             var reason = StallGeometry.CheckDeployArea(center, yaw, GameTuning.StallMatSize,
                                                        out float groundY, out string detail);
@@ -735,6 +809,13 @@ namespace AlpacasOnFire.Stall
         public void CollectStall(PlayerController requester = null, SuitcaseItem suitcase = null)
         {
             if (!HasStateAuthority || !MatDeployed) return;
+
+            // 夜裡不能收攤：收攤會 SetState(Exploring)，夜晚就被跳過了
+            if (IsNight)
+            {
+                RPC_Notice("天黑了，明天再收攤");
+                return;
+            }
 
             suitcase ??= ActiveSuitcase ?? FindSuitcaseNearMat();
 
@@ -932,6 +1013,7 @@ namespace AlpacasOnFire.Stall
         public bool CanOpenForBusiness(out string reason)
         {
             reason = null;
+            if (IsNight) { reason = "天黑了，今天不能再開張"; return false; }
             if (!MatDeployed) { reason = "還沒擺攤"; return false; }
             if (State != StallState.Deploying && State != StallState.Exploring)
             {
@@ -1107,6 +1189,19 @@ namespace AlpacasOnFire.Stall
             OnStallNotice?.Invoke(message);
         }
 
+        /// <summary>只對某一個玩家說一句話（例如非房主去按收工柱子）。只在 StateAuthority 呼叫。</summary>
+        public void NoticeTo(PlayerRef player, string message)
+        {
+            if (!HasStateAuthority) return;
+            RPC_NoticeTo(player, message);
+        }
+
+        [Rpc(RpcSources.StateAuthority, RpcTargets.All)]
+        private void RPC_NoticeTo([RpcTarget] PlayerRef player, string message)
+        {
+            OnStallNotice?.Invoke(message);
+        }
+
         [Rpc(RpcSources.StateAuthority, RpcTargets.All)]
         private void RPC_RoundSettled(int revenue, int deliveries, int missed, int capital,
                                       int target, NetworkBool passed, NetworkBool opened)
@@ -1128,6 +1223,9 @@ namespace AlpacasOnFire.Stall
                 _lastRenderedState = State;
                 OnStateChanged?.Invoke(State);
             }
+
+            // 夜晚的收工柱子：本機物件，跟著同步的 State 生滅（見 NightMarker 的說明）
+            NightMarker.Sync(this);
 
             if (MatDeployed)
             {

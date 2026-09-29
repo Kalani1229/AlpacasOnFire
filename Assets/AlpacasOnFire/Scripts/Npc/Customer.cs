@@ -98,6 +98,10 @@ namespace AlpacasOnFire.Npc
         {
             if (!HasStateAuthority || !Active) return;
 
+            // 已經在走了就不要再來一次 —— 收攤／打烊期間 CustomerQueue 每個 tick 都會請一次，
+            // 重來會把離開的路徑清掉，客人就一直在原地重算路
+            if (CurrentPhase == Phase.Leaving) return;
+
             PhaseRaw = (int)Phase.Leaving;
             PatienceTimer = default;
             _path.Clear();   // 離開的路徑在 TickLeaving 第一個 forward tick 重算

@@ -37,7 +37,8 @@ namespace AlpacasOnFire.Npc
         /// <summary>場上所有的大動物。**跟 WoolNpc.All 分開**，理由見類別註解。</summary>
         public static readonly List<WildBeast> All = new();
 
-        private enum BeastState : byte { Graze = 0, Alert = 1, Flee = 2, Return = 3 }
+        // 只能往後加（專案規則：enum 只增不改）
+        private enum BeastState : byte { Graze = 0, Alert = 1, Flee = 2, Return = 3, Sleep = 4 }
 
         [Header("Wild Beast")]
         [Tooltip("身上的毛是什麼顏色。最貴的顏色配最難抓的動物。")]
@@ -77,6 +78,7 @@ namespace AlpacasOnFire.Npc
             _ncc = GetComponent<NetworkCharacterController>();
             ConfigureController();
             _anim.Bind(this);
+            _sleepVisual.Bind(transform, SelfTinted());
 
             if (HasStateAuthority)
             {
@@ -123,8 +125,22 @@ namespace AlpacasOnFire.Npc
                 RelocateToCity();
             }
 
+            // 夜晚（run 模式）：停下來睡覺，不移動、不取樣方向。
+            // 之後（第 6 步）大動物會改成只在夜晚出現，那時把這段反過來。
+            bool night = NightNow;
+            if (night && State != BeastState.Sleep)
+            {
+                StateRaw = (int)BeastState.Sleep;
+                MoveDirection = Vector3.zero;
+            }
+            else if (!night && State == BeastState.Sleep)
+            {
+                EnterGraze();
+            }
+
             switch (State)
             {
+                case BeastState.Sleep:  _ncc.Move(Vector3.zero); break;   // 不動，但重力照樣作用
                 case BeastState.Alert:  TickAlert();  break;
                 case BeastState.Flee:   TickFlee();   break;
                 case BeastState.Return: TickReturn(); break;
@@ -503,11 +519,37 @@ namespace AlpacasOnFire.Npc
         /// <summary>比地面雜物高、比機台低，跟 WoolNpc 一樣。</summary>
         public int InteractionPriority => 1;
 
+        // ---------------- 夜晚 ----------------
+
+        /// <summary>現在該不該睡（run 模式的夜晚到隔天早上）。Stall_Test 永遠 false。</summary>
+        private static bool NightNow
+        {
+            get
+            {
+                var stall = Stall.StallManager.Instance;
+                return stall != null && stall.Object != null && stall.Object.IsValid && stall.AnimalsAsleep;
+            }
+        }
+
+        /// <summary>睡著了（同步狀態，所有端一致）。</summary>
+        public bool IsAsleep => State == BeastState.Sleep;
+
+        private readonly NpcSleepVisual _sleepVisual = new();
+
+        private IEnumerable<Renderer> SelfTinted()
+        {
+            if (_bodyRenderer != null) yield return _bodyRenderer;
+            if (_fleeceTufts == null) yield break;
+            foreach (var t in _fleeceTufts) if (t != null) yield return t;
+        }
+
+        /// <summary>睡著時一律回 true（要能顯示「牠睡著了」），Interact 會拒絕。</summary>
         public bool CanInteract(in InteractionContext ctx)
-            => Fleece > 0 && ctx.HeldKind == ItemKind.Shears;
+            => IsAsleep || (Fleece > 0 && ctx.HeldKind == ItemKind.Shears);
 
         public string GetPrompt(in InteractionContext ctx)
         {
+            if (IsAsleep) return "牠睡著了";
             if (ctx.HeldKind != ItemKind.Shears) return null;
             return Fleece > 0
                 ? $"[左鍵] 剃毛（{Fleece} 份一次全掉）"
@@ -524,6 +566,7 @@ namespace AlpacasOnFire.Npc
         public void Interact(in InteractionContext ctx)
         {
             if (!HasStateAuthority || Fleece <= 0) return;
+            if (IsAsleep) return;   // 睡著剃得到的話會變成無腦農場
 
             int count = Fleece;
             Fleece = 0;
@@ -552,7 +595,8 @@ namespace AlpacasOnFire.Npc
         public override void Render()
         {
             ApplyVisual(false);
-            _anim.Tick(_ncc, false);   // 有 Animator 才會動；佔位方塊版靜默
+            _anim.Tick(_ncc, IsAsleep);   // 有 Animator 才會動；佔位方塊版靜默
+            _sleepVisual.Tick(IsAsleep);
         }
 
         /// <summary>走路／待機動畫（isWalking）。表現層，不進網路狀態。</summary>
@@ -577,6 +621,7 @@ namespace AlpacasOnFire.Npc
                     : PlaceholderPalette.Dye(_woolColor);
 
                 if (Fleece <= 0) c *= 0.45f;   // 剃光轉暗，遠遠就看得出沒毛了
+                if (IsAsleep) c *= NpcSleepVisual.DimFactor;
 
                 _bodyRenderer.GetPropertyBlock(_mpb);
                 _mpb.SetColor("_BaseColor", c);
