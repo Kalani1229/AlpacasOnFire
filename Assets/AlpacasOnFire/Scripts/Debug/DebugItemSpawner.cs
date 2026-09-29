@@ -229,11 +229,18 @@ namespace AlpacasOnFire.DebugTools
 
             var stall = StallManager.Instance;
             int target = stall != null ? stall.RoundTarget : 0;
-            int amount = target > 0 ? Mathf.Max(1, target / 2) : 500;
+
+            // run 模式的目標是累積資本：加「今天的增量」的一半，按兩下剛好補上今天這一天。
+            // Stall_Test 維持原本的「今天門檻的一半」。
+            int amount;
+            if (stall != null && stall.RunMode)
+                amount = Mathf.Max(1, Mathf.CeilToInt((float)(Orders.CreditorSchedule.DailyIncrement(stall.CurrentRound) * 0.5)));
+            else
+                amount = target > 0 ? Mathf.Max(1, target / 2) : 500;
 
             director.AddMoney(amount, "除錯：加錢");
             Debug.Log($"[Debug] 加了 {amount} 元" +
-                      (target > 0 ? $"（今天門檻 {target}）。" : "（沒有門檻，用固定值）。"));
+                      (target > 0 ? $"（目標 {target}）。" : "（沒有目標，用固定值）。"));
         }
 
         /// <summary>

@@ -577,5 +577,10 @@ namespace AlpacasOnFire.Core
         // ---------- 夜晚 ----------
         /// <summary>天黑到全暗的過渡時間（純視覺）。</summary>
         public const float NightFadeSeconds = 3f;
+
+        // ---------- 債主的目標（數值暫定，等實際產能量過再調）----------
+        public const float DayTargetBase       = 300f;  // 第 1 天的增量
+        public const float DayTargetGrowth     = 1.35f; // 平常日每天乘這個
+        public const float BalloonMultiplier   = 2.0f;  // 大額日的增量再乘這個
     }
 }

@@ -139,9 +139,22 @@ namespace AlpacasOnFire.Stall
             }
         }
 
-        /// <summary>本輪離門檻還差多少（達標後是 0）。</summary>
+        /// <summary>
+        /// 含今天還沒入帳的收入 —— 玩家真正在意的是這個數字。
+        /// 白天：Capital（昨天為止）+ 今天的即時營收；天黑入帳之後就是 Capital 本身。
+        /// </summary>
+        public int ProjectedCapital => Capital + (DayActive ? CurrentRevenue : 0);
+
+        /// <summary>今天是不是大額日（run 模式）。HUD 用顏色標出來，不寫字。</summary>
+        public bool TodayIsBalloon => _runMode && CreditorSchedule.IsBalloonDay(CurrentRound);
+
+        /// <summary>
+        /// 離目標還差多少（達標後是 0）。
+        /// run 模式比的是**累積資本**（ProjectedCapital），Stall_Test 維持比今天的營收。
+        /// </summary>
         public int RoundRemaining =>
-            RoundTarget <= 0 ? 0 : Mathf.Max(0, RoundTarget - CurrentRevenue);
+            RoundTarget <= 0 ? 0
+            : Mathf.Max(0, RoundTarget - (_runMode ? ProjectedCapital : CurrentRevenue));
 
         private StallMatVisual _matVisual;
         private StallState _lastRenderedState = (StallState)255;
@@ -343,7 +356,9 @@ namespace AlpacasOnFire.Stall
             RoundRevenue = 0;
             RoundDeliveries = 0;
             RoundMissed = 0;
-            RoundTarget = _runMode ? GameTuning.StallTargetFor(CurrentRound) : 0;
+            // run 模式：RoundTarget 的意義是「今天結束時資本額至少要有多少」（累積目標）。
+            // 欄位名維持 RoundTarget —— 改名牽動太多地方。
+            RoundTarget = _runMode ? CreditorSchedule.TargetFor(CurrentRound) : 0;
             OpenedToday = false;
 
             SetState(StallState.Exploring);
@@ -396,8 +411,34 @@ namespace AlpacasOnFire.Stall
             var director = LevelDirector.Instance;
             RoundRevenue = director != null ? director.Money : 0;
 
+            // ---- 查帳（債主 P1）：判定從 Settle() 搬到這裡 ----
+            //
+            // 今天的收入入帳，然後跟**累積目標**比。沒達標就在天黑這一刻直接結束，不進夜晚。
+            // **沒達標也照樣入帳** —— 結算畫面才能誠實地顯示「差了多少」。
+            Capital += RoundRevenue;
             DayActive = false;
-            SetState(StallState.Night);
+
+            bool passed = Capital >= RoundTarget;
+            Debug.Log($"[債主] 第 {CurrentRound} 天查帳：資本 {Capital}（今天 +{RoundRevenue}）" +
+                      $"／目標 {RoundTarget} -> {(passed ? "過關，進入夜晚" : "沒達標，這一局結束")}");
+
+            if (passed)
+            {
+                SetState(StallState.Night);
+                return;
+            }
+
+            // 失敗：這一局結束。結算畫面要的資料一次送齊（跟 Settle() 送的是同一支 RPC、同一組欄位），
+            // 漏收 RPC 的 client 也能從同步欄位（RoundRevenue / Capital / RoundTarget）自己補開。
+            // CurrentRound 不 +1 —— 結算畫面的「撐過了 N 天」是 CurrentRound - 1。
+            RoundsCompleted++;
+            SetState(StallState.RunOver);
+
+            if (MatDeployed) GameAudio.PlayAt(SfxId.BusinessClose, MatCenter);
+            else GameAudio.Play(SfxId.BusinessClose);
+
+            RPC_RoundSettled(RoundRevenue, RoundDeliveries, RoundMissed, Capital, RoundTarget,
+                             passed: false, opened: OpenedToday);
         }
 
         /// <summary>
@@ -1122,6 +1163,13 @@ namespace AlpacasOnFire.Stall
         {
             if (!HasStateAuthority) return;
 
+            if (_runMode)
+            {
+                SettleNight();
+                return;
+            }
+
+            // ---- 以下是 Stall_Test（非 run 模式）的結算，跟以前完全一樣 ----
             var director = LevelDirector.Instance;
             int revenue = director != null ? director.Money : 0;
 
@@ -1145,6 +1193,27 @@ namespace AlpacasOnFire.Stall
 
             bool opened = !_runMode || OpenedToday;
             RPC_RoundSettled(revenue, RoundDeliveries, RoundMissed, Capital, RoundTarget, passed, opened);
+        }
+
+        /// <summary>
+        /// run 模式：夜晚結束（玩家互動收工柱子）時的結算。
+        ///
+        /// **不再判定通過與否** —— 天黑時 EndDay() 已經判完、也已經入帳了。
+        /// 能走到這裡就代表過關：記一天、換下一天、跳結算畫面。
+        /// </summary>
+        private void SettleNight()
+        {
+            RoundsCompleted++;
+            CurrentRound++;
+
+            OrderBoard.Instance?.ClearAllOrders();
+            SetState(StallState.Settling);
+
+            if (MatDeployed) GameAudio.PlayAt(SfxId.BusinessClose, MatCenter);
+            else GameAudio.Play(SfxId.BusinessClose);
+
+            RPC_RoundSettled(RoundRevenue, RoundDeliveries, RoundMissed, Capital, RoundTarget,
+                             passed: true, opened: OpenedToday);
         }
 
         /// <summary>

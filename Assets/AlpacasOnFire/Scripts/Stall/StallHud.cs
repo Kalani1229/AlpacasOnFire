@@ -27,6 +27,13 @@ namespace AlpacasOnFire.Stall
 
         private Text _openHintLabel;
         private Text _dayWarnLabel;
+        private Text _upcomingLabel;
+
+        /// <summary>
+        /// 大額日的顏色。**這個顏色就是訊號** —— 不寫「今天是大額日」，
+        /// 主行的「目標」與未來三天那一排都用它標出來。
+        /// </summary>
+        private const string BalloonHex = "#FF6FD8";
 
         private float _noticeTimer;
 
@@ -64,7 +71,14 @@ namespace AlpacasOnFire.Stall
             _targetLabel = UIFactory.Label("RoundTarget", transform, "", 24, TextAnchor.UpperLeft,
                 new Color(0.95f, 0.85f, 0.55f),
                 new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(0f, 1f),
-                new Vector2(26f, -108f), new Vector2(620f, 32f));
+                new Vector2(26f, -108f), new Vector2(760f, 32f));
+
+            // 未來三天的目標（小字）。大哥平常不出現，**這是玩家唯一的預警系統** ——
+            // 沒有它，第 3 天的大額就是驚喜死亡。
+            _upcomingLabel = UIFactory.Label("UpcomingTargets", transform, "", 18, TextAnchor.UpperLeft,
+                new Color(0.78f, 0.8f, 0.86f),
+                new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(0f, 1f),
+                new Vector2(28f, -142f), new Vector2(760f, 26f));
 
             _noticeLabel = UIFactory.Label("StallNotice", transform, "", 28, TextAnchor.MiddleCenter,
                 new Color(1f, 0.55f, 0.4f),
@@ -124,6 +138,7 @@ namespace AlpacasOnFire.Stall
                 if (_targetLabel != null) _targetLabel.text = "";
                 if (_openHintLabel != null) _openHintLabel.text = "";
                 if (_dayWarnLabel != null) _dayWarnLabel.text = "";
+                if (_upcomingLabel != null) _upcomingLabel.text = "";
                 return;
             }
 
@@ -133,9 +148,11 @@ namespace AlpacasOnFire.Stall
             _modeLabel.text = text;
             _modeChip.color = color;
 
+            // run 模式顯示「含今天收入」的資本，跟下面那一行的數字一致
+            int capital = stall.RunMode ? stall.ProjectedCapital : stall.Capital;
             _capitalLabel.text = stall.MatDeployed
-                ? $"資本額 ${stall.Capital}　｜　攤位裝備 {stall.DeployedCount()} 台"
-                : $"資本額 ${stall.Capital}";
+                ? $"資本額 ${Fmt(capital)}　｜　攤位裝備 {stall.DeployedCount()} 台"
+                : $"資本額 ${Fmt(capital)}";
 
             UpdateRoundTarget(stall);
             UpdateOpenHint(stall);
@@ -161,6 +178,7 @@ namespace AlpacasOnFire.Stall
             if (stall.RunMode && stall.IsNight)
             {
                 UpdateNight(stall);
+                UpdateUpcoming(stall, true);
                 return;
             }
 
@@ -171,6 +189,7 @@ namespace AlpacasOnFire.Stall
             {
                 _targetLabel.text = "";
                 if (_dayWarnLabel != null) _dayWarnLabel.text = "";
+                UpdateUpcoming(stall, false);
                 return;
             }
 
@@ -179,43 +198,46 @@ namespace AlpacasOnFire.Stall
             int secs = Mathf.CeilToInt(remain);
             string clock = $"{secs / 60}:{secs % 60:00}";
 
-            int earned = stall.CurrentRevenue;
+            // 主要比較的是**累積資本**，不是今天賺的。括號裡是今天的貢獻
+            int capital = stall.ProjectedCapital;
+            int today = stall.CurrentRevenue;
             int target = stall.RoundTarget;
-            string head = $"第 {stall.CurrentRound} 天　剩 {clock}　目標 {target}　已賺 {earned}";
+            string head = $"第 {stall.CurrentRound} 天　剩 {clock}　{TargetText(target, stall.TodayIsBalloon)}" +
+                          $"　資本 {Fmt(capital)}（今天 {Signed(today)}）";
 
-            if (earned >= target)
+            if (capital >= target)
             {
                 _targetLabel.text = $"{head}　已達標！";
                 _targetLabel.color = new Color(0.45f, 0.95f, 0.5f);
             }
             else
             {
-                _targetLabel.text = $"{head}　還差 {target - earned}";
+                _targetLabel.text = $"{head}　還差 {Fmt(target - capital)}";
 
                 // 進度過 75% 轉暖色 —— 快要來不及的時候要看得出來
-                float progress = earned / (float)target;
+                float progress = capital / (float)target;
                 _targetLabel.color = progress >= 0.75f
                     ? new Color(0.98f, 0.9f, 0.45f)
                     : new Color(0.95f, 0.85f, 0.55f);
             }
 
+            UpdateUpcoming(stall, true);
             UpdateNotOpenWarning(stall, remain);
         }
 
         /// <summary>
-        /// 夜晚：白天那一行換成「夜晚」+ 今天的成績。
-        /// **收工前就要看得出過不過得了** —— 已賺、目標、達標與否都寫出來，
-        /// 不要等結算畫面才揭曉（那時候已經沒得反悔了，而且下一批債主就站在那裡）。
+        /// 夜晚：白天那一行換成「夜晚」+ 資本與目標。
+        /// 能走到夜晚就代表天黑查帳已經過了（沒過會直接結束），但數字照樣寫出來，
+        /// 讓玩家看到自己離目標多遠、明天要面對什麼。
         /// </summary>
         private void UpdateNight(StallManager stall)
         {
-            int earned = stall.CurrentRevenue;   // 入夜時定格的今天營收
+            int capital = stall.ProjectedCapital;   // 夜裡 = Capital（今天的收入天黑時已入帳）
             int target = stall.RoundTarget;
-            bool passed = target <= 0 || earned >= target;
+            bool passed = target <= 0 || capital >= target;
 
-            _targetLabel.text = passed
-                ? $"第 {stall.CurrentRound} 天　夜晚　今天賺了 {earned}　目標 {target}　已達標！"
-                : $"第 {stall.CurrentRound} 天　夜晚　今天賺了 {earned}　目標 {target}　還差 {target - earned}";
+            string head = $"第 {stall.CurrentRound} 天　夜晚　資本 {Fmt(capital)}　{TargetText(target, stall.TodayIsBalloon)}";
+            _targetLabel.text = passed ? $"{head}　已達標！" : $"{head}　還差 {Fmt(target - capital)}";
             _targetLabel.color = passed ? new Color(0.45f, 0.95f, 0.5f) : new Color(1f, 0.55f, 0.45f);
 
             if (_dayWarnLabel != null)
@@ -225,6 +247,38 @@ namespace AlpacasOnFire.Stall
                 _dayWarnLabel.color = new Color(0.78f, 0.85f, 1f, 0.95f);
             }
         }
+
+        /// <summary>未來三天的目標，大額日用大額色。只在 run 模式的白天與夜晚顯示。</summary>
+        private void UpdateUpcoming(StallManager stall, bool show)
+        {
+            if (_upcomingLabel == null) return;
+            if (!show || !stall.RunMode)
+            {
+                _upcomingLabel.text = "";
+                return;
+            }
+
+            var sb = new System.Text.StringBuilder();
+            for (int i = 1; i <= 3; i++)
+            {
+                int day = stall.CurrentRound + i;
+                string entry = $"第 {day} 天 {Fmt(Orders.CreditorSchedule.TargetFor(day))}";
+                if (Orders.CreditorSchedule.IsBalloonDay(day)) entry = $"<color={BalloonHex}>{entry}</color>";
+                if (i > 1) sb.Append("　");
+                sb.Append(entry);
+            }
+            _upcomingLabel.text = sb.ToString();
+        }
+
+        /// <summary>「目標 XXX」。大額日整段換成大額色（rich text），不另外寫字。</summary>
+        private static string TargetText(int target, bool balloon)
+        {
+            string t = $"目標 {Fmt(target)}";
+            return balloon ? $"<color={BalloonHex}>{t}</color>" : t;
+        }
+
+        private static string Fmt(int n) => n.ToString("N0", System.Globalization.CultureInfo.InvariantCulture);
+        private static string Signed(int n) => n >= 0 ? $"+{Fmt(n)}" : $"-{Fmt(-n)}";
 
         /// <summary>
         /// 天快黑了還沒開張：紅字閃爍。**這是新玩家最容易犯的錯** ——

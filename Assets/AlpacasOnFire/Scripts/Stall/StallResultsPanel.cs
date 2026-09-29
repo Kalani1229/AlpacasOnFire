@@ -143,7 +143,7 @@ namespace AlpacasOnFire.Stall
                 ? $"（本場 +${revenue}）"
                 : $"（本場 -${-revenue}）";
 
-            if (!passed) ShowRunOver(revenue, target, stall);
+            if (!passed) ShowRunOver(revenue, target, capital, stall);
             else ShowRoundCleared(revenue, target, runMode, stall);
 
             LocalInputProvider.Instance?.SetCursorLocked(false);
@@ -166,10 +166,10 @@ namespace AlpacasOnFire.Stall
             }
             else
             {
-                // CurrentRound 在 Settle() 裡已經 +1 了，所以它現在就是「下一輪」
+                // CurrentRound 在 Settle() 裡已經 +1 了，所以它現在就是「明天」
                 int next = stall != null ? stall.CurrentRound : 1;
                 _runLineLabel.text = $"第 {Mathf.Max(1, next - 1)} 天達標　—　明天目標 " +
-                                     $"{GameTuning.StallTargetFor(next)}";
+                                     $"{Orders.CreditorSchedule.TargetFor(next)}";
                 _runLineLabel.color = new Color(0.55f, 0.95f, 0.65f);
             }
 
@@ -178,14 +178,15 @@ namespace AlpacasOnFire.Stall
         }
 
         /// <summary>沒達標 —— 這一局結束。</summary>
-        private void ShowRunOver(int revenue, int target, StallManager stall)
+        private void ShowRunOver(int revenue, int target, int capital, StallManager stall)
         {
             // 「撐過了幾輪」算的是**成功過關的輪數**，不是打過的輪數。
             // CurrentRound 只在達標時才 +1，所以第 N 輪倒下時它還停在 N，
             // 真正撐過的是 N-1 輪。倒在第 1 輪就是 0 輪 —— 誠實一點比較好笑。
             int cleared = stall != null ? Mathf.Max(0, stall.CurrentRound - 1) : 0;
             int deals = stall != null ? stall.RoundDeliveries : 0;
-            int shortfall = Mathf.Max(0, target - revenue);
+            // 目標是**累積資本**，差額也用資本算（今天的收入已經在天黑時入帳到 capital 裡了）
+            int shortfall = Mathf.Max(0, target - capital);
 
             _titleLabel.text = $"撐過了 {cleared} 天";
             _titleLabel.color = new Color(1f, 0.62f, 0.48f);
@@ -198,7 +199,7 @@ namespace AlpacasOnFire.Stall
                 _revenueLabel.fontSize = 58;
                 _revenueLabel.color = new Color(1f, 0.45f, 0.4f);
 
-                _dealsLabel.text = $"今天目標 ${target}　—　天黑之前要記得敲鈴開張";
+                _dealsLabel.text = $"目標 ${target}　資本 ${capital}　—　天黑之前要記得敲鈴開張";
                 _missedLabel.text = "";
 
                 _runLineLabel.text = stall != null && stall.BestSalePrice > 0
@@ -216,7 +217,7 @@ namespace AlpacasOnFire.Stall
             _revenueLabel.fontSize = 58;
             _revenueLabel.color = new Color(1f, 0.45f, 0.4f);
 
-            _dealsLabel.text = $"今天目標 ${target}　實際賺到 ${revenue}　｜　成交 {deals} 筆";
+            _dealsLabel.text = $"目標 ${target}　資本 ${capital}（今天 +${revenue}）　｜　成交 {deals} 筆";
 
             string best = stall != null && stall.BestSalePrice > 0
                 ? $"最貴的一件：{stall.BestSale.Describe()}　${stall.BestSalePrice}"
