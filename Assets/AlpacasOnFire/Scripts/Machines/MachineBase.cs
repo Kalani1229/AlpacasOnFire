@@ -281,6 +281,10 @@ namespace AlpacasOnFire.Machines
             {
                 CacheBodyRenderer();
                 var c = HasOutput ? Color.Lerp(_bodyBaseColor, DoneColor, 0.65f) : _bodyBaseColor;
+
+                // k0c4de note: this will override the default machine color.
+                // Since there are multiple materials on the machine, the overall effect is not ideal.
+                // Maybe use other methods to indicate machine status?
                 Tint(_bodyRenderer, c);
             }
         }
@@ -291,7 +295,7 @@ namespace AlpacasOnFire.Machines
             r.GetPropertyBlock(_mpb);
             _mpb.SetColor("_BaseColor", c);
             _mpb.SetColor("_Color", c);
-            _mpb.SetColor("_EmissionColor", c); /* Added by k0c4de */
+            _mpb.SetColor("_EmissionColor", c); // Added by k0c4de
             r.SetPropertyBlock(_mpb);
         }
 
