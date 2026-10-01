@@ -58,7 +58,7 @@ namespace AlpacasOnFire.Machines
         [SerializeField] private Renderer _woolSlot;
         [Tooltip("待料槽：機台側邊的小球。負責丟的人要能從遠處看出還有沒有空位。")]
         [SerializeField] private Renderer _queuedSlot;
-        [Tooltip("紡線中會繞 Y 軸轉的部位。留空的話轉 _bodyRenderer 的 transform。")]
+        [Tooltip("紡線中會繞 _spinAxis 轉的部位。留空的話轉 _bodyRenderer 的 transform。")]
         [SerializeField] private Transform _spinVisual;
 
         // ---- 原料槽 ----
@@ -96,6 +96,9 @@ namespace AlpacasOnFire.Machines
         private MaterialPropertyBlock _mpb;
         private readonly BarAnchor _progressBar01 = new(BarAnchor.Axis.X);
         private float _spinAngle;
+        [SerializeField] private Vector3 _spinAxis = Vector3.forward;
+        private Transform _cachedSpinVisual;
+        private Quaternion _spinVisualInitialRotation;
 
         public DyeColorType InputColor => (DyeColorType)InputColorRaw;
         public DyeColorType OutputColor => (DyeColorType)OutputColorRaw;
@@ -433,6 +436,12 @@ namespace AlpacasOnFire.Machines
                 : (_bodyRenderer != null ? _bodyRenderer.transform : null);
             if (spin == null) return;
 
+            if (_cachedSpinVisual != spin)
+            {
+                _cachedSpinVisual = spin;
+                _spinVisualInitialRotation = spin.localRotation;
+            }
+
             if (IsSpinning)
             {
                 _spinAngle += 260f * Time.deltaTime;
@@ -445,7 +454,16 @@ namespace AlpacasOnFire.Machines
                                                0f, 360f * Time.deltaTime);
             }
 
-            spin.localRotation = Quaternion.Euler(0f, _spinAngle, 0f);
+            /* Added by k0c4de: Use spinAxis instead of Y-axis */
+            if (_spinAxis.sqrMagnitude > Mathf.Epsilon)
+            {
+                spin.localRotation = _spinVisualInitialRotation
+                    * Quaternion.AngleAxis(_spinAngle, _spinAxis.normalized);
+            }
+            else
+            {
+                spin.localRotation = _spinVisualInitialRotation;
+            }
         }
 
         private void Tint(Renderer r, Color c)
