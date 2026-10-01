@@ -247,6 +247,7 @@ namespace AlpacasOnFire.Machines
             r.GetPropertyBlock(_mpb);
             _mpb.SetColor("_BaseColor", c);
             _mpb.SetColor("_Color", c);
+            _mpb.SetColor("_EmissionColor", c); /* Added by k0c4de */
             r.SetPropertyBlock(_mpb);
         }
 
