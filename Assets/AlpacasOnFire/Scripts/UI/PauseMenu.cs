@@ -54,6 +54,8 @@ namespace AlpacasOnFire.UI
             // 擺攤結算畫面也要讓 Esc 先關自己，不要疊一層暫停選單上去
             if (Stall.StallResultsPanel.Instance != null && Stall.StallResultsPanel.Instance.IsOpen) return;
             if (Stall.SuitcaseColorPanel.Instance != null && Stall.SuitcaseColorPanel.Instance.IsOpen) return;
+            // 小遊戲面板（遜咖賭場）：Esc 只關面板。這一幀剛被 Esc 關掉的也算，見 BlocksEscape
+            if (Casino.MinigamePanel.BlocksEscape) return;
 
             if (IsOpen) Close(); else Open();
         }

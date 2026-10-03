@@ -582,5 +582,23 @@ namespace AlpacasOnFire.Core
         public const float DayTargetBase       = 300f;  // 第 1 天的增量
         public const float DayTargetGrowth     = 1.35f; // 平常日每天乘這個
         public const float BalloonMultiplier   = 2.0f;  // 大額日的增量再乘這個
+
+        // ---------- 遜咖賭場：刮刮樂 ----------
+        //
+        // **刻意的負期望值（0.76）**：賭場是絕望閥，不是收入來源。不要調成正的。
+        // 用倍率而不是金額，票價改了獎項自動跟著變。
+        public const int ScratchCardPrice = 10;
+
+        /// <summary>獎項倍率，索引就是「獎項等級」（0 = 沒中）。結果用這個索引打包傳送。</summary>
+        public static readonly int[] ScratchPrizeMultipliers = { 0, 1, 2, 5, 20, 50 };
+
+        /// <summary>各等級的機率，跟上面一一對應，總和 = 1。</summary>
+        public static readonly float[] ScratchPrizeOdds = { 0.67f, 0.20f, 0.09f, 0.03f, 0.009f, 0.001f };
+
+        /// <summary>倍率到這個以上就廣播全隊。</summary>
+        public const int ScratchBroadcastMultiplier = 20;
+
+        /// <summary>刮到這個比例就自動全部揭曉。</summary>
+        public const float ScratchRevealFraction = 0.4f;
     }
 }

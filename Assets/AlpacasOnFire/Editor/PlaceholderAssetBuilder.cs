@@ -697,6 +697,8 @@ namespace AlpacasOnFire.EditorTools
             AddElement(outElements, failures, "SewingMachine", BuildSewingMachine);
             AddElement(outElements, failures, "Juicer", BuildJuicer);
             AddElement(outElements, failures, "Mannequin", BuildMannequin);
+            // 遜咖賭場的刮刮樂櫃檯。整套重建會覆寫整份 Catalog，這裡不建的話櫃檯登錄就掉了
+            AddElement(outElements, failures, "ScratchCardCounter", CasinoBuilder.BuildScratchCounter);
             AddElement(outElements, failures, "Mailbox", () => BuildSimpleStation<Mailbox>(
                 LevelElementType.Mailbox, "Machine_Mailbox", "M_Mailbox", PlaceholderPalette.Mailbox, 1.4f));
             AddElement(outElements, failures, "BoxDispenser", () => BuildSimpleStation<BoxDispenser>(

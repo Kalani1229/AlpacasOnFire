@@ -237,6 +237,13 @@ namespace AlpacasOnFire.EditorTools
                 BuildReport.Line("  [GameSystems] 掛上 CustomerQueue");
             }
 
+            // 遜咖賭場的每日狀態（今天的刮刮樂、櫃檯生滅）
+            if (systems.GetComponent<Casino.CasinoState>() == null)
+            {
+                systems.AddComponent<Casino.CasinoState>();
+                BuildReport.Line("  [GameSystems] 掛上 CasinoState");
+            }
+
             // **切成 v6 的裝備組**。沒有這一步，開箱彈出來的還是縫紉機／果汁機／人偶。
             var stall = systems.GetComponent<StallManager>();
             if (stall != null)

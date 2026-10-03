@@ -149,7 +149,7 @@ namespace AlpacasOnFire.Stall
             _modeChip.color = color;
 
             // run 模式顯示「含今天收入」的資本，跟下面那一行的數字一致
-            int capital = stall.RunMode ? stall.ProjectedCapital : stall.Capital;
+            int capital = stall.RunMode ? DisplayCapital(stall) : stall.Capital;
             _capitalLabel.text = stall.MatDeployed
                 ? $"資本額 ${Fmt(capital)}　｜　攤位裝備 {stall.DeployedCount()} 台"
                 : $"資本額 ${Fmt(capital)}";
@@ -199,7 +199,7 @@ namespace AlpacasOnFire.Stall
             string clock = $"{secs / 60}:{secs % 60:00}";
 
             // 主要比較的是**累積資本**，不是今天賺的。括號裡是今天的貢獻
-            int capital = stall.ProjectedCapital;
+            int capital = DisplayCapital(stall);
             int today = stall.CurrentRevenue;
             int target = stall.RoundTarget;
             string head = $"第 {stall.CurrentRound} 天　剩 {clock}　{TargetText(target, stall.TodayIsBalloon)}" +
@@ -232,7 +232,7 @@ namespace AlpacasOnFire.Stall
         /// </summary>
         private void UpdateNight(StallManager stall)
         {
-            int capital = stall.ProjectedCapital;   // 夜裡 = Capital（今天的收入天黑時已入帳）
+            int capital = DisplayCapital(stall);   // 夜裡 = Capital（今天的收入天黑時已入帳）
             int target = stall.RoundTarget;
             bool passed = target <= 0 || capital >= target;
 
@@ -288,6 +288,14 @@ namespace AlpacasOnFire.Stall
             string t = $"目標 {Fmt(target)}";
             return balloon ? $"<color={BalloonHex}>{t}</color>" : t;
         }
+
+        /// <summary>
+        /// HUD 上顯示的資本。**小遊戲面板開著時凍結**在打開前的數字 ——
+        /// 刮刮樂的錢是購買那一刻就入帳的，不凍結的話 HUD 會在刮開之前就劇透。
+        /// 只改顯示，不碰入帳；面板關掉才跳到真實值。
+        /// </summary>
+        private static int DisplayCapital(StallManager stall)
+            => Casino.MinigamePanel.CapitalFrozen ? Casino.MinigamePanel.FrozenCapital : stall.ProjectedCapital;
 
         private static string Fmt(int n) => n.ToString("N0", System.Globalization.CultureInfo.InvariantCulture);
         private static string Signed(int n) => n >= 0 ? $"+{Fmt(n)}" : $"-{Fmt(-n)}";

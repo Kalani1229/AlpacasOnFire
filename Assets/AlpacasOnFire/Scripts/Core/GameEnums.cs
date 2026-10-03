@@ -117,6 +117,10 @@ namespace AlpacasOnFire.Core
         // 紡線機：第一台「人必須待在原地」的機器。
         // 投料可以遠距（丟得進去），但要有人走過去按住左鍵才會轉。
         SpinningMachine = 29,
+
+        // ---- 遜咖賭場 ----
+        // 刮刮樂櫃檯：夜晚才存在（主機 Spawn／Despawn），擺在出生點的床旁邊。
+        ScratchCardCounter = 30,
     }
 
     /// <summary>

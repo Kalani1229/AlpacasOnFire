@@ -396,6 +396,9 @@ namespace AlpacasOnFire.Stall
             RoundTarget = _runMode ? CreditorSchedule.TargetFor(CurrentRound) : 0;
             OpenedToday = false;
 
+            // 遜咖賭場：新的一天換一副新的刮刮樂。漏掉的話隔天會沒有牌可以買
+            Casino.CasinoState.Instance?.ResetDay();
+
             // 債主 P2：天亮了，所有人起床、大哥下次大額日要再擋一次。
             // 漏掉任何一個，隔天不是直接跳過夜晚、就是大哥擋不住路。
             CreditorCleared = false;
@@ -535,6 +538,44 @@ namespace AlpacasOnFire.Stall
 
             EndDay();
             return true;
+        }
+
+        // ---------------- 資本額的進出 ----------------
+        //
+        // Capital 原本只進不出（只有天黑入帳）。遜咖賭場是第一條扣款路徑，
+        // 之後的升級系統也走同一組方法。
+        // **這會直接影響生死** —— 大哥查的就是 Capital，賭輸了可能當晚就過不了關。這是刻意的。
+
+        /// <summary>花錢。不夠就整筆失敗並回傳 false（不會只扣一部分）。只在 StateAuthority 呼叫。</summary>
+        public bool TrySpendCapital(int amount, string reason)
+        {
+            if (!HasStateAuthority || amount < 0) return false;
+            if (Capital < amount)
+            {
+                Debug.Log($"[資本] 花不起 {amount}（{reason}），目前 {Capital}");
+                return false;
+            }
+            Capital -= amount;
+            Debug.Log($"[資本] -{amount}（{reason}）-> {Capital}");
+            return true;
+        }
+
+        /// <summary>收錢（獎金之類）。只在 StateAuthority 呼叫。</summary>
+        public void AddCapital(int amount, string reason)
+        {
+            if (!HasStateAuthority || amount <= 0) return;
+            Capital += amount;
+            Debug.Log($"[資本] +{amount}（{reason}）-> {Capital}");
+        }
+
+        /// <summary>
+        /// 對全隊說一句話（每個 client 用 LocalNotice 顯示）。只在 StateAuthority 呼叫。
+        /// LocalNotice 只會出現在呼叫它的那一台，要讓所有人看到得走這支。
+        /// </summary>
+        public void NoticeAll(string message)
+        {
+            if (!HasStateAuthority) return;
+            RPC_Notice(message);
         }
 
         /// <summary>

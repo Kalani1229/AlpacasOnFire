@@ -59,6 +59,13 @@ namespace AlpacasOnFire.Stall
         // ---------------------------------------------------------------- 位置
 
         /// <summary>
+        /// 「家」的位置與朝向（床擺在這裡，賭場櫃檯也借這個位置擺在床旁邊）。
+        /// front = 從家看向第一個廣場中心的方向。每一端算出來都一樣（出生點與城市都是確定的）。
+        /// </summary>
+        public static void HomeFrame(StallManager stall, out Vector3 position, out Vector3 front)
+            => Place(stall, out position, out front);
+
+        /// <summary>
         /// 第一個出生點。拿不到的話退回舊的算法（襯布邊上／第一個廣場），並警告一次。
         /// 朝向：床尾對著第一個廣場中心（大家從那邊走過來）；沒有城市就朝 +Z。
         /// </summary>
